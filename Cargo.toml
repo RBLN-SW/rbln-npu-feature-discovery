@@ -1,0 +1,28 @@
+[package]
+name = "rbln-npu-feature-discovery"
+version = "0.1.1"
+edition = "2021"
+authors = ["Haejoon Kim <oceanjoon@rebellions.ai>"]
+build = "src/build.rs"
+
+[dependencies]
+anyhow = "1.0.95"
+chrono = "0.4.39"
+clap = { version = "4.5.26", features = ["derive"] }
+env_logger = "0.11.6"
+log = "0.4.22"
+prost = "0.13.4"
+strum = "0.26.3"
+strum_macros = "0.26.4"
+tokio = { version = "1.43.0", features = ["full"] }
+tonic = "0.13.0"
+
+[build-dependencies]
+tonic-build = "0.13.0"
+
+[[bin]]
+path = "src/main.rs"
+name = "rbln-npu-feature-discovery"
+plugin = false
+proc-macro = false
+required-features = []

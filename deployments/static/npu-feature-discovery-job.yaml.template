@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rbln-npu-feature-discovery
+  namespace: node-feature-discovery
+  labels:
+    app.kubernetes.io/name: rbln-npu-feature-discovery
+    app.kubernetes.io/version: 0.1.1
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rbln-npu-feature-discovery
+        app.kubernetes.io/version: 0.1.1
+    spec:
+      nodeName: NODE_NAME
+      containers:
+        - image: rebellions/rbln-npu-feature-discovery:0.1.1
+          name: rbln-npu-feature-discovery
+          command: ["/usr/bin/rbln-npu-feature-discovery"]
+          args:
+            - "--oneshot"
+          volumeMounts:
+            - name: output-dir
+              mountPath: "/etc/kubernetes/node-feature-discovery/features.d"
+            - name: host-sys
+              mountPath: "/sys"
+          securityContext:
+            privileged: true
+      hostNetwork: true
+      volumes:
+        - name: output-dir
+          hostPath:
+            path: "/etc/kubernetes/node-feature-discovery/features.d"
+        - name: host-sys
+          hostPath:
+            path: "/sys"
+      restartPolicy: Never
