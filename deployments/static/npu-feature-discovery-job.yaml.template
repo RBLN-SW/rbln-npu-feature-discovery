@@ -17,7 +17,7 @@ spec:
       containers:
         - image: rebellions/rbln-npu-feature-discovery:0.1.1
           name: rbln-npu-feature-discovery
-          command: ["/usr/bin/rbln-npu-feature-discovery"]
+          command: ["/usr/local/bin/rbln-npu-feature-discovery"]
           args:
             - "--oneshot"
           volumeMounts:
