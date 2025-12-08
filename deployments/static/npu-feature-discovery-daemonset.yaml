@@ -5,7 +5,7 @@ metadata:
   namespace: node-feature-discovery
   labels:
     app.kubernetes.io/name: rbln-npu-feature-discovery
-    app.kubernetes.io/version: v0.1.4
+    app.kubernetes.io/version: v0.2.0
 spec:
   selector:
     matchLabels:
@@ -14,10 +14,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: rbln-npu-feature-discovery
-        app.kubernetes.io/version: v0.1.4
+        app.kubernetes.io/version: v0.2.0
     spec:
       containers:
-        - image: rebellions/rbln-npu-feature-discovery:v0.1.4
+        - image: rebellions/rbln-npu-feature-discovery:v0.2.0
           name: rbln-npu-feature-discovery
           command: ["/usr/local/bin/rbln-npu-feature-discovery"]
           volumeMounts:
