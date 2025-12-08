@@ -5,17 +5,17 @@ metadata:
   namespace: node-feature-discovery
   labels:
     app.kubernetes.io/name: rbln-npu-feature-discovery
-    app.kubernetes.io/version: 0.1.1
+    app.kubernetes.io/version: v0.2.0
 spec:
   template:
     metadata:
       labels:
         app.kubernetes.io/name: rbln-npu-feature-discovery
-        app.kubernetes.io/version: 0.1.1
+        app.kubernetes.io/version: v0.2.0
     spec:
       nodeName: NODE_NAME
       containers:
-        - image: rebellions/rbln-npu-feature-discovery:0.1.1
+        - image: rebellions/rbln-npu-feature-discovery:v0.2.0
           name: rbln-npu-feature-discovery
           command: ["/usr/local/bin/rbln-npu-feature-discovery"]
           args:
