@@ -21,6 +21,7 @@ var deviceProductMap = map[string]DeviceProduct{
 	"1220": "CA22",
 	"1221": "CA22",
 	"1250": "CA25",
+	"2030": "CR03",
 }
 
 func productFromDeviceID(id string) (DeviceProduct, error) {
