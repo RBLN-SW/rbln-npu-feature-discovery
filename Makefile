@@ -23,7 +23,14 @@ BUILD_MULTI_PLATFORM ?= false
 DOCKER_BUILD_OPTIONS ?= --output=type=image,push=$(PUSH_ON_BUILD)
 BUILDX =
 
-ifeq ($(BUILD_MULTI_PLATFORM),true)
+# PLATFORM can be set to a single platform (e.g. linux/amd64, linux/arm64)
+# to override the default multi-platform logic.
+PLATFORM ?=
+
+ifneq ($(PLATFORM),)
+	DOCKER_BUILD_PLATFORM_OPTIONS := --platform=$(PLATFORM)
+	BUILDX = buildx
+else ifeq ($(BUILD_MULTI_PLATFORM),true)
 	DOCKER_BUILD_PLATFORM_OPTIONS ?= --platform=linux/amd64,linux/arm64
 	BUILDX = buildx
 else
