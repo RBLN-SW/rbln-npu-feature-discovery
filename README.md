@@ -77,7 +77,7 @@ Example usage: `rbln-npu-feature-discovery --sleep-interval 120`.
 
 | Symptom | Suggested action |
 |---------|------------------|
-| Pod logs `could not resolve product name` | The driver predates the `card_name` sysfs attribute and the device id is missing from the bundled `deps/rebellions-pci.ids` — update the driver or add the device entry. |
+| Pod logs `Could not resolve product name` | The driver predates the `card_name` sysfs attribute and the device id is missing from the bundled `deps/rebellions-pci.ids` — update the driver or add the device entry. |
 | Pod logs `output path validation failed` | Ensure `/etc/kubernetes/node-feature-discovery/features.d/` exists on the node before starting the DaemonSet. |
 | Labels do not appear on the node | Verify that NFD is running with the local source enabled and that the feature directory is mounted read-only into the `nfd-worker` pod. |
 | DaemonSet remains Pending | Confirm that NFD has applied `feature.node.kubernetes.io/pci-1200_1eff.present` or update the affinity to match your labeling scheme. |

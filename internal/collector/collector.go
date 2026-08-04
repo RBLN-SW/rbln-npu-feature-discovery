@@ -72,9 +72,9 @@ func NewFeaturesCollector(outputFile string, noTimestamp bool) *FeaturesCollecto
 		c.pciIDs, err = pciids.LoadRebellionsPCIIDs(path)
 	}
 	if err != nil {
-		slog.Warn("pci.ids unavailable; product fallback disabled", "err", err)
+		slog.Warn("Failed to load pci.ids", "err", err, "effect", "product fallback disabled")
 	} else {
-		slog.Info("pci.ids loaded", "path", path, "entries", c.pciIDs.Len())
+		slog.Info("Loaded pci.ids", "path", path, "entries", c.pciIDs.Len())
 	}
 	return c
 }
@@ -133,7 +133,7 @@ func (c *FeaturesCollector) collectFromSysfs(features *Features) error {
 func (c *FeaturesCollector) resolveProduct(deviceID string) string {
 	name, found, err := sysfs.ReadCardName()
 	if err != nil {
-		slog.Debug("failed to read card_name", "err", err)
+		slog.Warn("Failed to read card_name", "err", err, "effect", "falling back to pci.ids for product name")
 	}
 	if found {
 		return name
@@ -149,7 +149,7 @@ func (c *FeaturesCollector) resolveProduct(deviceID string) string {
 // npu.present/npu.count on the node.
 func applyProduct(features *Features, product string) {
 	if product == "" {
-		slog.Warn("could not resolve product name; omitting npu.product label")
+		slog.Warn("Could not resolve product name", "effect", "npu.product label omitted")
 		return
 	}
 	features.NPUProduct = ptr(product)
@@ -180,7 +180,7 @@ func (c *FeaturesCollector) save(features Features) error {
 		return fmt.Errorf("publishing feature file: %w", err)
 	}
 
-	slog.Debug("features saved", "path", c.outputFile)
+	slog.Debug("Features saved", "path", c.outputFile)
 	return nil
 }
 

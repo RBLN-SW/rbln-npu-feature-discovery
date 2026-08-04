@@ -61,7 +61,7 @@ func SetupFromEnv() error {
 }
 
 func parseLevel(s string) (slog.Level, error) {
-	switch strings.ToLower(s) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "info":
 		return slog.LevelInfo, nil
 	case "error":
@@ -85,6 +85,10 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	}
 	switch a.Key {
 	case slog.TimeKey:
+		// 사용자 attr가 "time" 키를 쓸 수 있다 — 레코드 타임스탬프만 변환한다.
+		if a.Value.Kind() != slog.KindTime {
+			return a
+		}
 		a.Key = "ts"
 		a.Value = slog.StringValue(a.Value.Time().Format(time.RFC3339Nano))
 	case slog.LevelKey:
@@ -108,7 +112,7 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	return a
 }
 
-// trimPath keeps the last two path segments, matching zap's short caller.
+// trimPath keeps at most the last two path segments for a zap-style short caller.
 func trimPath(file string) string {
 	idx := strings.LastIndexByte(file, '/')
 	if idx == -1 {

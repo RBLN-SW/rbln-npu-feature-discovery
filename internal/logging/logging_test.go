@@ -2,6 +2,7 @@ package logging
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ func logLine(t *testing.T, level, format, emit string) map[string]any {
 	case "debug":
 		logger.Debug("Polled daemon", "count", 3)
 	case "trace":
-		logger.Log(nil, LevelTrace, "Dumped payload", "bytes", 42)
+		logger.Log(context.Background(), LevelTrace, "Dumped payload", "bytes", 42)
 	case "error":
 		logger.Error("Request failed", "err", "boom")
 	}
@@ -81,5 +82,21 @@ func TestNewRejectsUnknownLevelAndFormat(t *testing.T) {
 	}
 	if _, err := New(&bytes.Buffer{}, "info", "yaml"); err == nil {
 		t.Fatal("want error for unknown format")
+	}
+}
+
+func TestNewPassesThroughUserTimeAttr(t *testing.T) {
+	var buf bytes.Buffer
+	logger, err := New(&buf, "info", "json")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	logger.Info("Measured duration", "time", "1.5s")
+	var m map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
+		t.Fatalf("not JSON: %v: %s", err, buf.String())
+	}
+	if m["time"] != "1.5s" {
+		t.Fatalf(`user "time" attr = %v, want "1.5s"`, m["time"])
 	}
 }

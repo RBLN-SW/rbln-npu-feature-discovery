@@ -34,7 +34,11 @@ func NewApp() *cobra.Command {
 }
 
 func Start(ctx context.Context, cfg Config) error {
-	slog.Info("starting rbln-npu-feature-discovery", "config", cfg)
+	slog.Info("Starting rbln-npu-feature-discovery",
+		"outputFile", cfg.OutputFile,
+		"sleepInterval", cfg.SleepInterval.String(),
+		"oneshot", cfg.Oneshot,
+		"noTimestamp", cfg.NoTimestamp)
 
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer stop()
@@ -46,7 +50,7 @@ func Start(ctx context.Context, cfg Config) error {
 	}
 
 	if err := collector.CollectOnce(); err != nil {
-		slog.Error("initial collection failed", "err", err)
+		slog.Error("Initial collection failed", "err", err)
 	}
 
 	ticker := time.NewTicker(cfg.SleepInterval)
@@ -58,7 +62,7 @@ func Start(ctx context.Context, cfg Config) error {
 			return ctx.Err()
 		case <-ticker.C:
 			if err := collector.CollectOnce(); err != nil {
-				slog.Error("periodic collection failed", "err", err)
+				slog.Error("Periodic collection failed", "err", err)
 			}
 		}
 	}

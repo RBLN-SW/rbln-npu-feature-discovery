@@ -15,7 +15,7 @@ func main() {
 	}
 	app := appcmd.NewApp()
 	if err := app.Execute(); err != nil {
-		slog.Error("command execution failed", "err", err)
+		slog.Error("Command execution failed", "err", err)
 		os.Exit(1)
 	}
 }

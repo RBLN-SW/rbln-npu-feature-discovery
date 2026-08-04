@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -76,6 +77,7 @@ func getenvIntDefault(getenv func(string) string, key string, def int) int {
 		if i, err := strconv.Atoi(v); err == nil {
 			return i
 		}
+		slog.Warn("Ignoring invalid integer env value", "key", key, "value", v, "fallback", def)
 	}
 	return def
 }
@@ -88,6 +90,7 @@ func getenvBoolDefault(getenv func(string) string, key string, def bool) bool {
 		case "0", "false", "no", "n", "off":
 			return false
 		}
+		slog.Warn("Ignoring invalid boolean env value", "key", key, "value", v, "fallback", def)
 	}
 	return def
 }
