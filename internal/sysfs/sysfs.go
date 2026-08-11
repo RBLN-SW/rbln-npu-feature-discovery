@@ -15,6 +15,7 @@ const (
 	pciDevicesPath   = "/sys/bus/pci/devices"
 	rebellionsSysfs  = "/sys/class/rebellions"
 	kernelVersionKey = "kernel_version"
+	cardNameKey      = "card_name"
 )
 
 type Device struct {
@@ -58,6 +59,33 @@ func DiscoverDevices() ([]Device, error) {
 	}
 
 	return devices, nil
+}
+
+// ReadCardName returns the product name (e.g. "RBLN-CR13") published by the
+// driver for the first rbln device exposing card_name. found is false when
+// the class dir or attribute is absent (driver not loaded, or too old).
+func ReadCardName() (string, bool, error) {
+	return readCardName(rebellionsSysfs)
+}
+
+func readCardName(classDir string) (string, bool, error) {
+	entries, err := os.ReadDir(classDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	for _, entry := range entries {
+		data, err := os.ReadFile(filepath.Join(classDir, entry.Name(), cardNameKey))
+		if err != nil {
+			continue
+		}
+		if name := strings.TrimSpace(string(data)); name != "" {
+			return name, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 func ReadDriverVersion() (string, bool, error) {
