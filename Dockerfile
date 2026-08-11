@@ -40,6 +40,10 @@ LABEL \
     com.redhat.component="rbln-npu-feature-discovery"
 
 COPY --from=builder /usr/local/bin/rbln-npu-feature-discovery /usr/local/bin/rbln-npu-feature-discovery
+# Bundled Rebellions pci.ids block: product-name fallback for hosts whose
+# driver predates the card_name sysfs attribute. First path probed by
+# internal/pciids.FindPCIIDsPath.
+COPY deps/rebellions-pci.ids /usr/share/misc/pci.ids
 RUN chown rbln:rbln /usr/local/bin/rbln-npu-feature-discovery && \
     chmod 755 /usr/local/bin/rbln-npu-feature-discovery
 
