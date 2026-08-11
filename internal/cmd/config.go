@@ -13,12 +13,10 @@ const (
 	MinSleepIntervalSeconds = 10
 	MaxSleepIntervalSeconds = 3600
 
-	defaultDaemonURL = "127.0.0.1:50051"
-	defaultOutput    = "/etc/kubernetes/node-feature-discovery/features.d/rbln-features"
+	defaultOutput = "/etc/kubernetes/node-feature-discovery/features.d/rbln-features"
 )
 
 type Config struct {
-	RBLNDaemonURL string
 	OutputFile    string
 	SleepInterval time.Duration
 	Oneshot       bool
@@ -32,7 +30,6 @@ type configBuilder struct {
 
 func newConfigBuilder(getenv func(string) string) *configBuilder {
 	cfg := Config{
-		RBLNDaemonURL: getenvDefault(getenv, "RBLN_NPU_FEATURE_DISCOVERY_RBLN_DAEMON_URL", defaultDaemonURL),
 		OutputFile:    getenvDefault(getenv, "RBLN_NPU_FEATURE_DISCOVERY_OUTPUT_FILE", defaultOutput),
 		SleepInterval: time.Duration(getenvIntDefault(getenv, "RBLN_NPU_FEATURE_DISCOVERY_SLEEP_INTERVAL", 60)) * time.Second,
 		Oneshot:       getenvBoolDefault(getenv, "RBLN_NPU_FEATURE_DISCOVERY_ONESHOT", false),
@@ -46,11 +43,17 @@ func newConfigBuilder(getenv func(string) string) *configBuilder {
 }
 
 func (b *configBuilder) bindFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&b.cfg.RBLNDaemonURL, "rbln-daemon-url", b.cfg.RBLNDaemonURL, "Endpoint to RBLN daemon grpc server")
 	fs.BoolVar(&b.cfg.Oneshot, "oneshot", b.cfg.Oneshot, "Label once and exit")
 	fs.BoolVar(&b.cfg.NoTimestamp, "no-timestamp", b.cfg.NoTimestamp, "Skip writing expiry timestamp to labels")
 	fs.IntVar(&b.sleepIntervalSec, "sleep-interval", b.sleepIntervalSec, fmt.Sprintf("Time to sleep between labeling (min: %ds, max: %ds)", MinSleepIntervalSeconds, MaxSleepIntervalSeconds))
 	fs.StringVarP(&b.cfg.OutputFile, "output-file", "o", b.cfg.OutputFile, "Path to output file")
+
+	// Deprecated no-op: rbln-npu-operator passes this flag unconditionally
+	// (npu_feature_discovery.go WithArgs), so dropping it outright would
+	// crash operator-managed pods with "unknown flag". Remove once the
+	// operator stops sending it.
+	fs.String("rbln-daemon-url", "", "Deprecated: daemon collection was removed; the value is ignored")
+	_ = fs.MarkDeprecated("rbln-daemon-url", "daemon collection was removed; the value is ignored")
 }
 
 func (b *configBuilder) finalize() error {
@@ -58,7 +61,6 @@ func (b *configBuilder) finalize() error {
 		return fmt.Errorf("sleep-interval must be %d-%d seconds", MinSleepIntervalSeconds, MaxSleepIntervalSeconds)
 	}
 	b.cfg.SleepInterval = time.Duration(b.sleepIntervalSec) * time.Second
-	b.cfg.RBLNDaemonURL = stripSchemePrefix(b.cfg.RBLNDaemonURL)
 	return nil
 }
 
@@ -88,14 +90,4 @@ func getenvBoolDefault(getenv func(string) string, key string, def bool) bool {
 		}
 	}
 	return def
-}
-
-func stripSchemePrefix(addr string) string {
-	if strings.HasPrefix(addr, "http://") {
-		return strings.TrimPrefix(addr, "http://")
-	}
-	if strings.HasPrefix(addr, "https://") {
-		return strings.TrimPrefix(addr, "https://")
-	}
-	return addr
 }

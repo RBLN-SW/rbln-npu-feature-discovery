@@ -39,13 +39,13 @@ func Start(ctx context.Context, cfg Config) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer stop()
 
-	collector := collector.NewFeaturesCollector(cfg.RBLNDaemonURL, cfg.OutputFile, cfg.NoTimestamp)
+	collector := collector.NewFeaturesCollector(cfg.OutputFile, cfg.NoTimestamp)
 
 	if cfg.Oneshot {
-		return collector.CollectOnce(ctx)
+		return collector.CollectOnce()
 	}
 
-	if err := collector.CollectOnce(ctx); err != nil {
+	if err := collector.CollectOnce(); err != nil {
 		slog.Error("initial collection failed", "err", err)
 	}
 
@@ -57,7 +57,7 @@ func Start(ctx context.Context, cfg Config) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if err := collector.CollectOnce(ctx); err != nil {
+			if err := collector.CollectOnce(); err != nil {
 				slog.Error("periodic collection failed", "err", err)
 			}
 		}
