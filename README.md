@@ -4,7 +4,7 @@ RBLN NPU Feature Discovery automatically publishes Kubernetes node labels descri
 
 ## Overview
 
-The binary inspects sysfs: devices are discovered under `/sys/bus/pci/devices` (vendor `0x1eff`), and the product name is resolved from the driver's `card_name` attribute under `/sys/class/rebellions` first, falling back to the bundled `pci.ids` Rebellions vendor block for drivers that predate `card_name`. If neither source resolves the product, only `npu.product`/`npu.family` are omitted — the remaining labels are still written. All collected facts are stored in `/etc/kubernetes/node-feature-discovery/features.d/rbln-features`, which NFD reads through the `local` feature source.
+The binary inspects sysfs: devices are discovered under `/sys/bus/pci/devices` (vendor `0x1eff`), and the product name is resolved from the driver's `card_name` attribute under `/sys/class/rebellions` first, falling back to the bundled `pci.ids` Rebellions vendor block for drivers that predate `card_name`. If neither source resolves the product, only `npu.product` is omitted — the remaining labels are still written. All collected facts are stored in `/etc/kubernetes/node-feature-discovery/features.d/rbln-features`, which NFD reads through the `local` feature source.
 
 | Component | Purpose |
 |-----------|---------|
@@ -37,7 +37,6 @@ Customize namespace, tolerations, image registry, or resource requests as needed
 Once both NFD and RBLN NPU Feature Discovery are running, inspect a node with `kubectl get node <npu-node> -o yaml`. The `metadata.labels` section should now include keys such as:
 - `rebellions.ai/npu.present=true`
 - `rebellions.ai/npu.count=2`
-- `rebellions.ai/npu.family=ATOM`
 - `rebellions.ai/npu.product=RBLN-CA12`
 - `rebellions.ai/driver-version.full=1.2.92-6d00b56`
 - `rebellions.ai/driver-version.major=1`
@@ -52,7 +51,6 @@ Label values are stored as strings in Kubernetes. The “Value type” column de
 |-------|------------|-------------|----------|
 | `rebellions.ai/npu.present` | Boolean | Indicates if any RBLN NPU was detected on the node. | `true`, `false` |
 | `rebellions.ai/npu.count` | Integer | Number of NPUs after filtering out PFs that own SR-IOV VFs. | `1`, `2` |
-| `rebellions.ai/npu.family` | String | Architecture family derived from the PCI product code. | `ATOM`, `REBEL` |
 | `rebellions.ai/npu.product` | String | Product name (e.g., `RBLN-CA22`, `RBLN-CR22`). | `RBLN-CA22`, `RBLN-CR22` |
 | `rebellions.ai/driver-version.full` | String | Full semantic version reported by the driver, including optional revision suffix. | `1.2.92-6d00b56` |
 | `rebellions.ai/driver-version.major` | Integer | Major component of the driver version. | `1` |
