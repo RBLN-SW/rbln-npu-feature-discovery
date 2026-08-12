@@ -4,12 +4,11 @@ RBLN NPU Feature Discovery automatically publishes Kubernetes node labels descri
 
 ## Overview
 
-The binary queries the `rbln-daemon` gRPC endpoint whenever it is available and falls back to sysfs inspection under `/sys/class/rebellions`. All collected facts are stored in `/etc/kubernetes/node-feature-discovery/features.d/rbln-features`, which NFD reads through the `local` feature source.
+The binary inspects sysfs: devices are discovered under `/sys/bus/pci/devices` (vendor `0x1eff`), and the product name is resolved from the driver's `card_name` attribute under `/sys/class/rebellions` first, falling back to the bundled `pci.ids` Rebellions vendor block for drivers that predate `card_name`. If neither source resolves the product, only `npu.product`/`npu.family` are omitted — the remaining labels are still written. All collected facts are stored in `/etc/kubernetes/node-feature-discovery/features.d/rbln-features`, which NFD reads through the `local` feature source.
 
 | Component | Purpose |
 |-----------|---------|
-| RBLN driver | Exposes kernel version and PCI details for Rebellions devices. |
-| rbln-daemon | Provides device inventory and driver metadata over gRPC. |
+| RBLN driver | Exposes kernel version, product name, and PCI details for Rebellions devices. |
 | RBLN NPU Feature Discovery | Collects hardware information periodically and writes local feature entries. |
 | Node Feature Discovery | Converts the local feature file into Kubernetes node labels. |
 
@@ -17,7 +16,6 @@ The binary queries the `rbln-daemon` gRPC endpoint whenever it is available and 
 
 - Kubernetes 1.19+ cluster
 - Nodes equipped with Rebellions NPUs (ATOM or REBEL families) and RBLN driver 1.2.79 or newer.
-- `rbln-daemon` reachable from the pod (default `127.0.0.1:50051`).
 - Node Feature Discovery v0.17.x deployed on target nodes with the [local feature source](https://kubernetes-sigs.github.io/node-feature-discovery/v0.17/usage/customization-guide.html#local-feature-source) enabled and `/etc/kubernetes/node-feature-discovery/features.d/` mounted.
 
 ## Deployment
@@ -67,19 +65,19 @@ RBLN NPU Feature Discovery accepts both flags and environment variables. Default
 
 | Flag | Environment variable | Default | Description |
 |------|----------------------|---------|-------------|
-| `--rbln-daemon-url` | `RBLN_NPU_FEATURE_DISCOVERY_RBLN_DAEMON_URL` | `127.0.0.1:50051` | Endpoint for the `rbln-daemon` gRPC service. |
 | `--output-file`, `-o` | `RBLN_NPU_FEATURE_DISCOVERY_OUTPUT_FILE` | `/etc/kubernetes/node-feature-discovery/features.d/rbln-features` | Destination file consumed by the NFD local source. |
 | `--sleep-interval` | `RBLN_NPU_FEATURE_DISCOVERY_SLEEP_INTERVAL` | `60` seconds (min 10s, max 3600s) | Time between collections when running continuously. |
 | `--oneshot` | `RBLN_NPU_FEATURE_DISCOVERY_ONESHOT` | `false` | Collect features once and exit. Used by the Job template. |
 | `--no-timestamp` | `RBLN_NPU_FEATURE_DISCOVERY_NO_TIMESTAMP` | `false` | Skip writing the hourly expiry comment required by NFD. |
+| `--rbln-daemon-url` (deprecated) | `RBLN_NPU_FEATURE_DISCOVERY_RBLN_DAEMON_URL` (ignored) | — | No-op kept for compatibility with manifests that still pass it (e.g. rbln-npu-operator); daemon collection was removed. |
 
-Example usage: `rbln-npu-feature-discovery --rbln-daemon-url 10.0.0.20:50051 --sleep-interval 120`.
+Example usage: `rbln-npu-feature-discovery --sleep-interval 120`.
 
 ## Troubleshooting
 
 | Symptom | Suggested action |
 |---------|------------------|
-| Pod logs `failed to collect features from daemon` repeatedly | Confirm `rbln-daemon` is running on the host and that the pod uses `hostNetwork`. |
+| Pod logs `could not resolve product name` | The driver predates the `card_name` sysfs attribute and the device id is missing from the bundled `deps/rebellions-pci.ids` — update the driver or add the device entry. |
 | Pod logs `output path validation failed` | Ensure `/etc/kubernetes/node-feature-discovery/features.d/` exists on the node before starting the DaemonSet. |
 | Labels do not appear on the node | Verify that NFD is running with the local source enabled and that the feature directory is mounted read-only into the `nfd-worker` pod. |
 | DaemonSet remains Pending | Confirm that NFD has applied `feature.node.kubernetes.io/pci-1200_1eff.present` or update the affinity to match your labeling scheme. |

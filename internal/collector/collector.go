@@ -1,7 +1,6 @@
 package collector
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rebellions-sw/rbln-npu-feature-discovery/internal/daemon"
+	"github.com/rebellions-sw/rbln-npu-feature-discovery/internal/pciids"
 	"github.com/rebellions-sw/rbln-npu-feature-discovery/internal/sysfs"
 )
 
@@ -62,88 +61,37 @@ func (f Features) toPlainText() string {
 }
 
 type FeaturesCollector struct {
-	daemonURL   string
 	outputFile  string
 	noTimestamp bool
+	pciIDs      *pciids.PCIIDsLookup
 }
 
-func NewFeaturesCollector(daemonURL, outputFile string, noTimestamp bool) *FeaturesCollector {
-	return &FeaturesCollector{
-		daemonURL:   daemonURL,
+func NewFeaturesCollector(outputFile string, noTimestamp bool) *FeaturesCollector {
+	c := &FeaturesCollector{
 		outputFile:  outputFile,
 		noTimestamp: noTimestamp,
 	}
+	path, err := pciids.FindPCIIDsPath()
+	if err == nil {
+		c.pciIDs, err = pciids.LoadRebellionsPCIIDs(path)
+	}
+	if err != nil {
+		slog.Warn("pci.ids unavailable; product fallback disabled", "err", err)
+	} else {
+		slog.Info("pci.ids loaded", "path", path, "entries", c.pciIDs.Len())
+	}
+	return c
 }
 
-func (c *FeaturesCollector) CollectOnce(ctx context.Context) error {
+func (c *FeaturesCollector) CollectOnce() error {
 	features := newFeatures()
 
-	if err := c.collectFromDaemon(ctx, &features); err != nil {
-		slog.Debug("failed to collect features from daemon, falling back to sysfs", "err", err)
-		if sysfsErr := c.collectFromSysfs(&features); sysfsErr != nil {
-			return fmt.Errorf("collecting features from sysfs: %w", sysfsErr)
-		}
+	if err := c.collectFromSysfs(&features); err != nil {
+		return fmt.Errorf("collecting features from sysfs: %w", err)
 	}
 
 	if err := c.save(features); err != nil {
 		return fmt.Errorf("saving features: %w", err)
-	}
-
-	return nil
-}
-
-func (c *FeaturesCollector) collectFromDaemon(ctx context.Context, features *Features) error {
-	client, err := daemon.NewClient(ctx, c.daemonURL)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if closeErr := client.Close(); closeErr != nil {
-			slog.Debug("failed to close daemon client", "err", closeErr)
-		}
-	}()
-
-	devices, err := client.ServiceableDevices(ctx)
-	if err != nil {
-		return err
-	}
-
-	if len(devices) == 0 {
-		return nil
-	}
-
-	features.NPUPresent = true
-	features.NPUCount = ptr(len(devices))
-
-	product, err := productFromDeviceID(devices[0].GetDevId())
-	if err != nil {
-		return err
-	}
-	features.NPUProduct = ptr(product.FeatureString())
-
-	family, err := product.Family()
-	if err != nil {
-		return err
-	}
-	features.NPUFamily = ptr(family)
-
-	versionInfo, err := client.Version(ctx, devices[0])
-	if err != nil {
-		slog.Debug("failed to fetch driver version from daemon", "err", err)
-		return nil
-	}
-
-	semver, revision, major, minor, patch, err := parseDriverVersion(versionInfo.GetDrvVersion())
-	if err != nil {
-		return err
-	}
-
-	features.DriverVersionFull = ptr(semver)
-	features.DriverVersionMajor = ptr(major)
-	features.DriverVersionMinor = ptr(minor)
-	features.DriverVersionPatch = ptr(patch)
-	if revision != nil {
-		features.DriverVersionRevision = revision
 	}
 
 	return nil
@@ -159,17 +107,7 @@ func (c *FeaturesCollector) collectFromSysfs(features *Features) error {
 		features.NPUPresent = true
 		features.NPUCount = ptr(len(devices))
 
-		product, err := productFromDeviceID(devices[0].DeviceID)
-		if err != nil {
-			return err
-		}
-		features.NPUProduct = ptr(product.FeatureString())
-
-		family, err := product.Family()
-		if err != nil {
-			return err
-		}
-		features.NPUFamily = ptr(family)
+		applyProduct(features, c.resolveProduct(devices[0].DeviceID))
 	}
 
 	driverVersion, found, err := sysfs.ReadDriverVersion()
@@ -191,6 +129,41 @@ func (c *FeaturesCollector) collectFromSysfs(features *Features) error {
 	}
 
 	return nil
+}
+
+// resolveProduct returns the product label ("RBLN-CR13") for a device:
+// driver card_name first (authoritative, no per-SKU maintenance), bundled
+// pci.ids second (covers old drivers without the card_name attribute).
+func (c *FeaturesCollector) resolveProduct(deviceID string) string {
+	name, found, err := sysfs.ReadCardName()
+	if err != nil {
+		slog.Debug("failed to read card_name", "err", err)
+	}
+	if found {
+		return name
+	}
+	if name := c.pciIDs.Lookup(deviceID); name != "" {
+		return productLabelFromPCIIDsName(name)
+	}
+	return ""
+}
+
+// applyProduct sets NPUProduct/NPUFamily. An unresolved product only costs
+// these two labels — never the rest of the feature file — so a new SKU
+// cannot expire npu.present/npu.count on the node.
+func applyProduct(features *Features, product string) {
+	if product == "" {
+		slog.Warn("could not resolve product name; omitting npu.product and npu.family labels")
+		return
+	}
+	features.NPUProduct = ptr(product)
+
+	family, err := familyFromProduct(product)
+	if err != nil {
+		slog.Warn("cannot derive family; omitting npu.family label", "product", product)
+		return
+	}
+	features.NPUFamily = ptr(family)
 }
 
 func (c *FeaturesCollector) save(features Features) error {
