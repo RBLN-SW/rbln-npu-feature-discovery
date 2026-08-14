@@ -17,7 +17,6 @@ const labelPrefix = "rebellions.ai"
 type Features struct {
 	NPUPresent            bool
 	NPUCount              *int
-	NPUFamily             *string
 	NPUProduct            *string
 	DriverVersionFull     *string
 	DriverVersionMajor    *string
@@ -35,9 +34,6 @@ func (f Features) toPlainText() string {
 	fmt.Fprintf(&b, "%s/npu.present=%t\n", labelPrefix, f.NPUPresent)
 	if f.NPUCount != nil {
 		fmt.Fprintf(&b, "%s/npu.count=%d\n", labelPrefix, *f.NPUCount)
-	}
-	if f.NPUFamily != nil {
-		fmt.Fprintf(&b, "%s/npu.family=%s\n", labelPrefix, *f.NPUFamily)
 	}
 	if f.NPUProduct != nil {
 		fmt.Fprintf(&b, "%s/npu.product=%s\n", labelPrefix, *f.NPUProduct)
@@ -148,22 +144,15 @@ func (c *FeaturesCollector) resolveProduct(deviceID string) string {
 	return ""
 }
 
-// applyProduct sets NPUProduct/NPUFamily. An unresolved product only costs
-// these two labels — never the rest of the feature file — so a new SKU
-// cannot expire npu.present/npu.count on the node.
+// applyProduct sets NPUProduct. An unresolved product only costs this label —
+// never the rest of the feature file — so a new SKU cannot expire
+// npu.present/npu.count on the node.
 func applyProduct(features *Features, product string) {
 	if product == "" {
-		slog.Warn("could not resolve product name; omitting npu.product and npu.family labels")
+		slog.Warn("could not resolve product name; omitting npu.product label")
 		return
 	}
 	features.NPUProduct = ptr(product)
-
-	family, err := familyFromProduct(product)
-	if err != nil {
-		slog.Warn("cannot derive family; omitting npu.family label", "product", product)
-		return
-	}
-	features.NPUFamily = ptr(family)
 }
 
 func (c *FeaturesCollector) save(features Features) error {
