@@ -56,10 +56,30 @@ func (f Features) toPlainText() string {
 	return b.String()
 }
 
+// logAttrs renders the label set as slog key-values so a log reader can
+// reconstruct exactly what was published without access to the output file.
+func (f Features) logAttrs() []any {
+	attrs := []any{"npuPresent", f.NPUPresent}
+	if f.NPUCount != nil {
+		attrs = append(attrs, "npuCount", *f.NPUCount)
+	}
+	if f.NPUProduct != nil {
+		attrs = append(attrs, "npuProduct", *f.NPUProduct)
+	}
+	if f.DriverVersionFull != nil {
+		attrs = append(attrs, "driverVersionFull", *f.DriverVersionFull)
+	}
+	if f.DriverVersionRevision != nil {
+		attrs = append(attrs, "driverVersionRevision", *f.DriverVersionRevision)
+	}
+	return attrs
+}
+
 type FeaturesCollector struct {
-	outputFile  string
-	noTimestamp bool
-	pciIDs      *pciids.PCIIDsLookup
+	outputFile    string
+	noTimestamp   bool
+	pciIDs        *pciids.PCIIDsLookup
+	lastPublished string
 }
 
 func NewFeaturesCollector(outputFile string, noTimestamp bool) *FeaturesCollector {
@@ -106,9 +126,20 @@ func (c *FeaturesCollector) collectFromSysfs(features *Features) error {
 		applyProduct(features, c.resolveProduct(devices[0].DeviceID))
 	}
 
-	driverVersion, found, err := sysfs.ReadDriverVersion()
-	if err != nil || !found {
+	return collectDriverVersion(features)
+}
+
+// readDriverVersion is a test seam over the fixed sysfs path.
+var readDriverVersion = sysfs.ReadDriverVersion
+
+func collectDriverVersion(features *Features) error {
+	driverVersion, found, err := readDriverVersion()
+	if err != nil {
 		return err
+	}
+	if !found {
+		slog.Warn("Driver version not found in sysfs", "effect", "driver-version labels omitted")
+		return nil
 	}
 
 	semver, revision, major, minor, patch, err := parseDriverVersion(driverVersion)
@@ -156,11 +187,12 @@ func applyProduct(features *Features, product string) {
 }
 
 func (c *FeaturesCollector) save(features Features) error {
-	text := features.toPlainText()
+	plain := features.toPlainText()
+	text := plain
 
 	if !c.noTimestamp {
 		expiry := time.Now().Add(time.Hour).Format(time.RFC3339)
-		text = fmt.Sprintf("# +expiry-time=%s\n%s", expiry, text)
+		text = fmt.Sprintf("# +expiry-time=%s\n%s", expiry, plain)
 	}
 
 	dir := filepath.Dir(c.outputFile)
@@ -178,6 +210,13 @@ func (c *FeaturesCollector) save(features Features) error {
 	}
 	if err := os.Rename(tempPath, c.outputFile); err != nil {
 		return fmt.Errorf("publishing feature file: %w", err)
+	}
+
+	// Snapshot on change only: keeps steady state quiet while making the
+	// published label set reconstructable from the logs.
+	if plain != c.lastPublished {
+		c.lastPublished = plain
+		slog.Info("Feature labels published", features.logAttrs()...)
 	}
 
 	slog.Debug("Features saved", "path", c.outputFile)
