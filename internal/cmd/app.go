@@ -59,7 +59,8 @@ func Start(ctx context.Context, cfg Config) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			slog.Info("Shutting down")
+			return nil
 		case <-ticker.C:
 			if err := collector.CollectOnce(); err != nil {
 				slog.Error("Periodic collection failed", "err", err)
