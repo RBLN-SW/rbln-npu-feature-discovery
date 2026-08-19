@@ -9,10 +9,7 @@ import (
 )
 
 func main() {
-	if err := logging.SetupFromEnv(); err != nil {
-		slog.Error("Invalid logging configuration", "err", err)
-		os.Exit(1)
-	}
+	logging.SetupFromEnv()
 	app := appcmd.NewApp()
 	if err := app.Execute(); err != nil {
 		slog.Error("Command execution failed", "err", err)

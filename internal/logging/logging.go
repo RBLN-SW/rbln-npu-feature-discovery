@@ -32,14 +32,16 @@ func New(w io.Writer, level, format string) (*slog.Logger, error) {
 		AddSource:   lvl <= slog.LevelDebug,
 		ReplaceAttr: replaceAttr,
 	}
+	f, err := parseFormat(format)
+	if err != nil {
+		return nil, err
+	}
 	var h slog.Handler
-	switch strings.ToLower(format) {
-	case "", "json":
+	switch f {
+	case "json":
 		h = slog.NewJSONHandler(w, opts)
 	case "text":
 		h = slog.NewTextHandler(w, opts)
-	default:
-		return nil, fmt.Errorf("unknown log format %q (json|text)", format)
 	}
 	return slog.New(h), nil
 }
@@ -55,9 +57,31 @@ func Setup(level, format string) error {
 }
 
 // SetupFromEnv reads LOG_LEVEL / LOG_FORMAT and installs the logger.
-// 빈 값이면 info/json (프로덕션 기본).
-func SetupFromEnv() error {
-	return Setup(os.Getenv("LOG_LEVEL"), os.Getenv("LOG_FORMAT"))
+// 빈 값이면 info/json (프로덕션 기본). Invalid 값은 프로세스를 죽이지 않는다:
+// 해당 변수만 계약 기본값으로 대체하고, 설치된 로거로 "fallback" 키를 담은
+// Warn을 남긴다 (contract: substituting a default adds a fallback key).
+func SetupFromEnv() {
+	level, format := os.Getenv("LOG_LEVEL"), os.Getenv("LOG_FORMAT")
+	var levelErr, formatErr error
+	if _, err := parseLevel(level); err != nil {
+		levelErr, level = err, "info"
+	}
+	if _, err := parseFormat(format); err != nil {
+		formatErr, format = err, "json"
+	}
+	if err := Setup(level, format); err != nil {
+		// 위에서 검증/대체했으므로 도달 불가.
+		slog.Error("Failed to install logger", "err", err)
+		return
+	}
+	// LOG_LEVEL=error + invalid LOG_FORMAT이면 format Warn이 게이트에 억제된다 —
+	// 명시적으로 error 게이트를 고른 결과이므로 수용.
+	if levelErr != nil {
+		slog.Warn("Invalid LOG_LEVEL, using default", "err", levelErr, "fallback", "info")
+	}
+	if formatErr != nil {
+		slog.Warn("Invalid LOG_FORMAT, using default", "err", formatErr, "fallback", "json")
+	}
 }
 
 func parseLevel(s string) (slog.Level, error) {
@@ -66,7 +90,7 @@ func parseLevel(s string) (slog.Level, error) {
 		return slog.LevelInfo, nil
 	case "error":
 		return slog.LevelError, nil
-	case "warning", "warn":
+	case "warning":
 		return slog.LevelWarn, nil
 	case "debug":
 		return slog.LevelDebug, nil
@@ -74,6 +98,16 @@ func parseLevel(s string) (slog.Level, error) {
 		return LevelTrace, nil
 	}
 	return 0, fmt.Errorf("unknown log level %q (error|warning|info|debug|trace)", s)
+}
+
+func parseFormat(s string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "json":
+		return "json", nil
+	case "text":
+		return "text", nil
+	}
+	return "", fmt.Errorf("unknown log format %q (json|text)", s)
 }
 
 // replaceAttr normalizes slog output to the contract: key "ts" with
@@ -121,5 +155,5 @@ func trimPath(file string) string {
 	if idx2 := strings.LastIndexByte(file[:idx], '/'); idx2 != -1 {
 		return file[idx2+1:]
 	}
-	return file[idx+1:]
+	return file
 }

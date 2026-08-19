@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -98,5 +100,81 @@ func TestNewPassesThroughUserTimeAttr(t *testing.T) {
 	}
 	if m["time"] != "1.5s" {
 		t.Fatalf(`user "time" attr = %v, want "1.5s"`, m["time"])
+	}
+}
+
+func TestNewTextFormat(t *testing.T) {
+	var buf bytes.Buffer
+	logger, err := New(&buf, "", "text")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	logger.Info("Started component", "port", 8080)
+	out := buf.String()
+	for _, want := range []string{"level=info", `msg="Started component"`, "ts=", "port=8080"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("text output missing %q: %s", want, out)
+		}
+	}
+}
+
+func TestNewWarningSpelledWarnInOutput(t *testing.T) {
+	var buf bytes.Buffer
+	logger, err := New(&buf, "warning", "json")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	logger.Warn("Request failed")
+	var m map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
+		t.Fatalf("not JSON: %v: %s", err, buf.String())
+	}
+	if m["level"] != "warn" {
+		t.Fatalf("level = %v, want warn (output spelling)", m["level"])
+	}
+	if _, err := New(&bytes.Buffer{}, "warn", "json"); err == nil {
+		t.Fatal(`want error for input "warn" — configuration vocabulary is "warning"`)
+	}
+}
+
+func TestNewCallerPresentAtDebugGate(t *testing.T) {
+	m := logLine(t, "debug", "json", "info")
+	if m == nil {
+		t.Fatal("info line suppressed at debug level")
+	}
+	caller, ok := m["caller"].(string)
+	if !ok {
+		t.Fatal("caller must be present at debug gate")
+	}
+	if !regexp.MustCompile(`^[^/]+/[^/]+\.go:\d+$`).MatchString(caller) {
+		t.Fatalf("caller = %q, want dir/file.go:N", caller)
+	}
+}
+
+func TestTrimPath(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"c.go", "c.go"},
+		{"b/c.go", "b/c.go"},
+		{"a/b/c.go", "b/c.go"},
+		{"x/a/b/c.go", "b/c.go"},
+	} {
+		if got := trimPath(tc.in); got != tc.want {
+			t.Errorf("trimPath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestSetupFromEnvFallsBack(t *testing.T) {
+	old := slog.Default()
+	defer slog.SetDefault(old)
+	t.Setenv("LOG_LEVEL", "bogus")
+	t.Setenv("LOG_FORMAT", "json")
+	SetupFromEnv()
+	ctx := context.Background()
+	if !slog.Default().Enabled(ctx, slog.LevelInfo) {
+		t.Fatal("fallback logger must enable info")
+	}
+	if slog.Default().Enabled(ctx, slog.LevelDebug) {
+		t.Fatal("fallback logger must gate debug (info default)")
 	}
 }
