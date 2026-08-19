@@ -22,10 +22,6 @@ func logLine(t *testing.T, level, format, emit string) map[string]any {
 		logger.Info("Started component", "port", 8080)
 	case "debug":
 		logger.Debug("Polled daemon", "count", 3)
-	case "trace":
-		logger.Log(context.Background(), LevelTrace, "Dumped payload", "bytes", 42)
-	case "error":
-		logger.Error("Request failed", "err", "boom")
 	}
 	if buf.Len() == 0 {
 		return nil
@@ -37,7 +33,7 @@ func logLine(t *testing.T, level, format, emit string) map[string]any {
 	return m
 }
 
-func TestNewDefaultsToInfoJSONWithContractKeys(t *testing.T) {
+func TestNewDefaultsToInfoJSONWithNormalizedKeys(t *testing.T) {
 	m := logLine(t, "", "", "info")
 	if m == nil {
 		t.Fatal("info line suppressed at default level")
@@ -65,16 +61,9 @@ func TestNewGatesDebugAtInfo(t *testing.T) {
 	}
 }
 
-func TestNewTraceLevelRendersTraceAndCaller(t *testing.T) {
-	m := logLine(t, "trace", "json", "trace")
-	if m == nil {
-		t.Fatal("trace line suppressed at trace level")
-	}
-	if m["level"] != "trace" {
-		t.Fatalf("level = %v, want trace", m["level"])
-	}
-	if _, ok := m["caller"].(string); !ok {
-		t.Fatal("caller must be present at trace level")
+func TestNewRejectsTraceLevel(t *testing.T) {
+	if _, err := New(&bytes.Buffer{}, "trace", "json"); err == nil {
+		t.Fatal("want error: this component logs nothing below debug")
 	}
 }
 

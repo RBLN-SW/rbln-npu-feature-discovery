@@ -1,6 +1,6 @@
 // Package logging configures the process-wide slog logger: level-gated JSON
 // (default) or text on stdout, with normalized output keys — "ts"
-// (RFC3339Nano), lowercase "level", and a short "caller" at debug and below.
+// (RFC3339Nano), lowercase "level", and a short "caller" at debug.
 package logging
 
 import (
@@ -12,11 +12,8 @@ import (
 	"time"
 )
 
-// LevelTrace extends slog's levels downward with an extra "trace" level.
-const LevelTrace = slog.Level(-8)
-
 // New builds a slog logger writing to w.
-// level: "error"|"warning"|"info"|"debug"|"trace" ("" = info).
+// level: "error"|"warning"|"info"|"debug" ("" = info).
 // format: "json"|"text" ("" = json).
 func New(w io.Writer, level, format string) (*slog.Logger, error) {
 	lvl, err := parseLevel(level)
@@ -25,7 +22,7 @@ func New(w io.Writer, level, format string) (*slog.Logger, error) {
 	}
 	opts := &slog.HandlerOptions{
 		Level: lvl,
-		// The caller attr's cost and noise are only worth it at debug and below.
+		// The caller attr's cost and noise are only worth it at debug.
 		AddSource:   lvl <= slog.LevelDebug,
 		ReplaceAttr: replaceAttr,
 	}
@@ -43,17 +40,8 @@ func New(w io.Writer, level, format string) (*slog.Logger, error) {
 	return slog.New(h), nil
 }
 
-// Setup installs the process-wide default logger (stdout).
-func Setup(level, format string) error {
-	logger, err := New(os.Stdout, level, format)
-	if err != nil {
-		return err
-	}
-	slog.SetDefault(logger)
-	return nil
-}
-
-// SetupFromEnv reads LOG_LEVEL / LOG_FORMAT and installs the logger.
+// SetupFromEnv reads LOG_LEVEL / LOG_FORMAT and installs the process-wide
+// default logger (stdout).
 // Empty values default to info/json (the production defaults). Invalid
 // values do not kill the process: only the offending variable falls back
 // to its default, and a Warn carrying a "fallback" key is emitted through
@@ -67,11 +55,13 @@ func SetupFromEnv() {
 	if _, err := parseFormat(format); err != nil {
 		formatErr, format = err, "json"
 	}
-	if err := Setup(level, format); err != nil {
+	logger, err := New(os.Stdout, level, format)
+	if err != nil {
 		// Unreachable: both values were validated or replaced above.
 		slog.Error("Failed to install logger", "err", err)
 		return
 	}
+	slog.SetDefault(logger)
 	// With LOG_LEVEL=error an invalid LOG_FORMAT's warn is suppressed by the
 	// gate — accepted, since the error gate was chosen explicitly.
 	if levelErr != nil {
@@ -92,10 +82,8 @@ func parseLevel(s string) (slog.Level, error) {
 		return slog.LevelWarn, nil
 	case "debug":
 		return slog.LevelDebug, nil
-	case "trace":
-		return LevelTrace, nil
 	}
-	return 0, fmt.Errorf("unknown log level %q (error|warning|info|debug|trace)", s)
+	return 0, fmt.Errorf("unknown log level %q (error|warning|info|debug)", s)
 }
 
 func parseFormat(s string) (string, error) {
@@ -108,9 +96,9 @@ func parseFormat(s string) (string, error) {
 	return "", fmt.Errorf("unknown log format %q (json|text)", s)
 }
 
-// replaceAttr normalizes slog output: key "ts" with
-// RFC3339Nano, lowercase "level" ("trace" for LevelTrace), and a zap-style
-// "caller" ("file:line") instead of the verbose source group.
+// replaceAttr normalizes slog output: key "ts" with RFC3339Nano, lowercase
+// "level", and a zap-style "caller" ("file:line") instead of the verbose
+// source group.
 func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	if len(groups) > 0 {
 		return a
@@ -128,11 +116,7 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 		if !ok {
 			return a
 		}
-		if lvl == LevelTrace {
-			a.Value = slog.StringValue("trace")
-		} else {
-			a.Value = slog.StringValue(strings.ToLower(lvl.String()))
-		}
+		a.Value = slog.StringValue(strings.ToLower(lvl.String()))
 	case slog.SourceKey:
 		src, ok := a.Value.Any().(*slog.Source)
 		if !ok {
