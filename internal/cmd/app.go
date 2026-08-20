@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -40,8 +41,20 @@ func Start(ctx context.Context, cfg Config) error {
 		"oneshot", cfg.Oneshot,
 		"noTimestamp", cfg.NoTimestamp)
 
-	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	defer stop()
+	// Cause-aware equivalent of signal.NotifyContext, so the shutdown log
+	// can say which signal (or parent cancellation) triggered it.
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer signal.Stop(sigCh)
+	go func() {
+		select {
+		case sig := <-sigCh:
+			cancel(fmt.Errorf("received signal %s", sig))
+		case <-ctx.Done():
+		}
+	}()
 
 	collector := collector.NewFeaturesCollector(cfg.OutputFile, cfg.NoTimestamp)
 
@@ -59,7 +72,7 @@ func Start(ctx context.Context, cfg Config) error {
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("Shutting down")
+			slog.Info("Shutting down", "reason", context.Cause(ctx))
 			return nil
 		case <-ticker.C:
 			if err := collector.CollectOnce(); err != nil {
