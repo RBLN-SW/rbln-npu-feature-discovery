@@ -68,7 +68,7 @@ RBLN NPU Feature Discovery accepts both flags and environment variables. Default
 | `--oneshot` | `RBLN_NPU_FEATURE_DISCOVERY_ONESHOT` | `false` | Collect features once and exit. Used by the Job template. |
 | `--no-timestamp` | `RBLN_NPU_FEATURE_DISCOVERY_NO_TIMESTAMP` | `false` | Skip writing the hourly expiry comment required by NFD. |
 | `--rbln-daemon-url` (deprecated) | `RBLN_NPU_FEATURE_DISCOVERY_RBLN_DAEMON_URL` (ignored) | — | No-op kept for compatibility with manifests that still pass it (e.g. rbln-npu-operator); daemon collection was removed. |
-| — | `LOG_LEVEL` | `info` | Log verbosity: `error`, `warning`, `info`, `debug`. |
+| — | `LOG_LEVEL` | `info` | Log verbosity: `error`, `warning` (or `warn`), `info`, `debug`. |
 | — | `LOG_FORMAT` | `json` | Log output format: `json`, `text`. |
 
 Example usage: `rbln-npu-feature-discovery --sleep-interval 120`.

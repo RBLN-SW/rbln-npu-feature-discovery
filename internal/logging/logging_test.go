@@ -107,22 +107,23 @@ func TestNewTextFormat(t *testing.T) {
 	}
 }
 
-func TestNewWarningSpelledWarnInOutput(t *testing.T) {
-	var buf bytes.Buffer
-	logger, err := New(&buf, "warning", "json")
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	logger.Warn("Request failed")
-	var m map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
-		t.Fatalf("not JSON: %v: %s", err, buf.String())
-	}
-	if m["level"] != "warn" {
-		t.Fatalf("level = %v, want warn (output spelling)", m["level"])
-	}
-	if _, err := New(&bytes.Buffer{}, "warn", "json"); err == nil {
-		t.Fatal(`want error for input "warn" — configuration vocabulary is "warning"`)
+// Both "warning" and the output spelling "warn" configure the warn gate;
+// output always spells "warn".
+func TestNewWarnLevelInputAliasesAndOutputSpelling(t *testing.T) {
+	for _, level := range []string{"warning", "warn"} {
+		var buf bytes.Buffer
+		logger, err := New(&buf, level, "json")
+		if err != nil {
+			t.Fatalf("New(%q): %v", level, err)
+		}
+		logger.Warn("Request failed")
+		var m map[string]any
+		if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
+			t.Fatalf("not JSON: %v: %s", err, buf.String())
+		}
+		if m["level"] != "warn" {
+			t.Fatalf("New(%q): level = %v, want warn (output spelling)", level, m["level"])
+		}
 	}
 }
 
@@ -165,5 +166,45 @@ func TestSetupFromEnvFallsBack(t *testing.T) {
 	}
 	if slog.Default().Enabled(ctx, slog.LevelDebug) {
 		t.Fatal("fallback logger must gate debug (info default)")
+	}
+}
+
+func TestSetupFromEnvInvalidLevelEmitsWarn(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "bogus")
+	t.Setenv("LOG_FORMAT", "json")
+	var buf bytes.Buffer
+	setupFromEnv(&buf)
+	var m map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
+		t.Fatalf("warn output not JSON: %v: %s", err, buf.String())
+	}
+	if m["msg"] != "Invalid LOG_LEVEL, using default" {
+		t.Fatalf("msg = %v, want invalid-LOG_LEVEL warn", m["msg"])
+	}
+	if m["fallback"] != "info" {
+		t.Fatalf("fallback = %v, want info", m["fallback"])
+	}
+}
+
+func TestSetupFromEnvInvalidFormatFallsBackToJSON(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "")
+	t.Setenv("LOG_FORMAT", "yaml")
+	var buf bytes.Buffer
+	logger := setupFromEnv(&buf)
+	// The warn itself must already be in the fallback format: JSON.
+	var m map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
+		t.Fatalf("fallback output not JSON: %v: %s", err, buf.String())
+	}
+	if m["msg"] != "Invalid LOG_FORMAT, using default" {
+		t.Fatalf("msg = %v, want invalid-LOG_FORMAT warn", m["msg"])
+	}
+	if m["fallback"] != "json" {
+		t.Fatalf("fallback = %v, want json", m["fallback"])
+	}
+	buf.Reset()
+	logger.Info("Started component")
+	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
+		t.Fatalf("subsequent records not JSON: %v: %s", err, buf.String())
 	}
 }

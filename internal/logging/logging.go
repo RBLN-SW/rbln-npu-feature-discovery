@@ -13,31 +13,35 @@ import (
 )
 
 // New builds a slog logger writing to w.
-// level: "error"|"warning"|"info"|"debug" ("" = info).
+// level: "error"|"warning"|"warn"|"info"|"debug" ("" = info).
 // format: "json"|"text" ("" = json).
 func New(w io.Writer, level, format string) (*slog.Logger, error) {
 	lvl, err := parseLevel(level)
 	if err != nil {
 		return nil, err
 	}
+	f, err := parseFormat(format)
+	if err != nil {
+		return nil, err
+	}
+	return newLogger(w, lvl, f), nil
+}
+
+// newLogger builds the logger from already-validated settings.
+func newLogger(w io.Writer, lvl slog.Level, format string) *slog.Logger {
 	opts := &slog.HandlerOptions{
 		Level: lvl,
 		// The caller attr's cost and noise are only worth it at debug.
 		AddSource:   lvl <= slog.LevelDebug,
 		ReplaceAttr: replaceAttr,
 	}
-	f, err := parseFormat(format)
-	if err != nil {
-		return nil, err
-	}
 	var h slog.Handler
-	switch f {
-	case "json":
-		h = slog.NewJSONHandler(w, opts)
-	case "text":
+	if format == "text" {
 		h = slog.NewTextHandler(w, opts)
+	} else {
+		h = slog.NewJSONHandler(w, opts)
 	}
-	return slog.New(h), nil
+	return slog.New(h)
 }
 
 // SetupFromEnv reads LOG_LEVEL / LOG_FORMAT and installs the process-wide
@@ -47,29 +51,31 @@ func New(w io.Writer, level, format string) (*slog.Logger, error) {
 // to its default, and a Warn carrying a "fallback" key is emitted through
 // the installed logger.
 func SetupFromEnv() {
-	level, format := os.Getenv("LOG_LEVEL"), os.Getenv("LOG_FORMAT")
-	var levelErr, formatErr error
-	if _, err := parseLevel(level); err != nil {
-		levelErr, level = err, "info"
+	slog.SetDefault(setupFromEnv(os.Stdout))
+}
+
+// setupFromEnv builds the env-configured logger writing to w and emits the
+// invalid-value warns through it. Split from SetupFromEnv so tests can
+// observe the warn output.
+func setupFromEnv(w io.Writer) *slog.Logger {
+	lvl, levelErr := parseLevel(os.Getenv("LOG_LEVEL"))
+	if levelErr != nil {
+		lvl = slog.LevelInfo
 	}
-	if _, err := parseFormat(format); err != nil {
-		formatErr, format = err, "json"
+	format, formatErr := parseFormat(os.Getenv("LOG_FORMAT"))
+	if formatErr != nil {
+		format = "json"
 	}
-	logger, err := New(os.Stdout, level, format)
-	if err != nil {
-		// Unreachable: both values were validated or replaced above.
-		slog.Error("Failed to install logger", "err", err)
-		return
-	}
-	slog.SetDefault(logger)
+	logger := newLogger(w, lvl, format)
 	// With LOG_LEVEL=error an invalid LOG_FORMAT's warn is suppressed by the
 	// gate — accepted, since the error gate was chosen explicitly.
 	if levelErr != nil {
-		slog.Warn("Invalid LOG_LEVEL, using default", "err", levelErr, "fallback", "info")
+		logger.Warn("Invalid LOG_LEVEL, using default", "err", levelErr, "fallback", "info")
 	}
 	if formatErr != nil {
-		slog.Warn("Invalid LOG_FORMAT, using default", "err", formatErr, "fallback", "json")
+		logger.Warn("Invalid LOG_FORMAT, using default", "err", formatErr, "fallback", "json")
 	}
+	return logger
 }
 
 func parseLevel(s string) (slog.Level, error) {
@@ -78,12 +84,12 @@ func parseLevel(s string) (slog.Level, error) {
 		return slog.LevelInfo, nil
 	case "error":
 		return slog.LevelError, nil
-	case "warning":
+	case "warning", "warn":
 		return slog.LevelWarn, nil
 	case "debug":
 		return slog.LevelDebug, nil
 	}
-	return 0, fmt.Errorf("unknown log level %q (error|warning|info|debug)", s)
+	return 0, fmt.Errorf("unknown log level %q (error|warning|warn|info|debug)", s)
 }
 
 func parseFormat(s string) (string, error) {
