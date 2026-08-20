@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -70,6 +71,14 @@ func TestSaveLogsSnapshotOnChangeOnly(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), `"npuCount":4`) {
 		t.Fatalf("changed features must log a new snapshot, got: %s", buf.String())
+	}
+}
+
+// Every Features field must have a labelFields entry, or a future label
+// would reach the file (or the log) without reaching the other.
+func TestLabelFieldsCoverAllFeatureFields(t *testing.T) {
+	if got, want := len(labelFields), reflect.TypeOf(Features{}).NumField(); got != want {
+		t.Fatalf("labelFields has %d entries, Features has %d fields — add the new field to labelFields", got, want)
 	}
 }
 

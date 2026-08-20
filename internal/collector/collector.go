@@ -29,29 +29,46 @@ func newFeatures() Features {
 	return Features{NPUPresent: false}
 }
 
+// labelField ties one label to its slog key and value accessor. toPlainText
+// and logAttrs both iterate labelFields, so the published file and the log
+// snapshot cannot drift apart.
+type labelField struct {
+	label string
+	attr  string
+	value func(Features) (any, bool)
+}
+
+func strField(label, attr string, get func(Features) *string) labelField {
+	return labelField{label, attr, func(f Features) (any, bool) {
+		if p := get(f); p != nil {
+			return *p, true
+		}
+		return nil, false
+	}}
+}
+
+var labelFields = []labelField{
+	{"npu.present", "npuPresent", func(f Features) (any, bool) { return f.NPUPresent, true }},
+	{"npu.count", "npuCount", func(f Features) (any, bool) {
+		if f.NPUCount == nil {
+			return nil, false
+		}
+		return *f.NPUCount, true
+	}},
+	strField("npu.product", "npuProduct", func(f Features) *string { return f.NPUProduct }),
+	strField("driver-version.full", "driverVersionFull", func(f Features) *string { return f.DriverVersionFull }),
+	strField("driver-version.major", "driverVersionMajor", func(f Features) *string { return f.DriverVersionMajor }),
+	strField("driver-version.minor", "driverVersionMinor", func(f Features) *string { return f.DriverVersionMinor }),
+	strField("driver-version.patch", "driverVersionPatch", func(f Features) *string { return f.DriverVersionPatch }),
+	strField("driver-version.revision", "driverVersionRevision", func(f Features) *string { return f.DriverVersionRevision }),
+}
+
 func (f Features) toPlainText() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s/npu.present=%t\n", labelPrefix, f.NPUPresent)
-	if f.NPUCount != nil {
-		fmt.Fprintf(&b, "%s/npu.count=%d\n", labelPrefix, *f.NPUCount)
-	}
-	if f.NPUProduct != nil {
-		fmt.Fprintf(&b, "%s/npu.product=%s\n", labelPrefix, *f.NPUProduct)
-	}
-	if f.DriverVersionFull != nil {
-		fmt.Fprintf(&b, "%s/driver-version.full=%s\n", labelPrefix, *f.DriverVersionFull)
-	}
-	if f.DriverVersionMajor != nil {
-		fmt.Fprintf(&b, "%s/driver-version.major=%s\n", labelPrefix, *f.DriverVersionMajor)
-	}
-	if f.DriverVersionMinor != nil {
-		fmt.Fprintf(&b, "%s/driver-version.minor=%s\n", labelPrefix, *f.DriverVersionMinor)
-	}
-	if f.DriverVersionPatch != nil {
-		fmt.Fprintf(&b, "%s/driver-version.patch=%s\n", labelPrefix, *f.DriverVersionPatch)
-	}
-	if f.DriverVersionRevision != nil {
-		fmt.Fprintf(&b, "%s/driver-version.revision=%s\n", labelPrefix, *f.DriverVersionRevision)
+	for _, fld := range labelFields {
+		if v, ok := fld.value(f); ok {
+			fmt.Fprintf(&b, "%s/%s=%v\n", labelPrefix, fld.label, v)
+		}
 	}
 	return b.String()
 }
@@ -59,27 +76,11 @@ func (f Features) toPlainText() string {
 // logAttrs renders the label set as slog key-values so a log reader can
 // reconstruct exactly what was published without access to the output file.
 func (f Features) logAttrs() []any {
-	attrs := []any{"npuPresent", f.NPUPresent}
-	if f.NPUCount != nil {
-		attrs = append(attrs, "npuCount", *f.NPUCount)
-	}
-	if f.NPUProduct != nil {
-		attrs = append(attrs, "npuProduct", *f.NPUProduct)
-	}
-	if f.DriverVersionFull != nil {
-		attrs = append(attrs, "driverVersionFull", *f.DriverVersionFull)
-	}
-	if f.DriverVersionMajor != nil {
-		attrs = append(attrs, "driverVersionMajor", *f.DriverVersionMajor)
-	}
-	if f.DriverVersionMinor != nil {
-		attrs = append(attrs, "driverVersionMinor", *f.DriverVersionMinor)
-	}
-	if f.DriverVersionPatch != nil {
-		attrs = append(attrs, "driverVersionPatch", *f.DriverVersionPatch)
-	}
-	if f.DriverVersionRevision != nil {
-		attrs = append(attrs, "driverVersionRevision", *f.DriverVersionRevision)
+	var attrs []any
+	for _, fld := range labelFields {
+		if v, ok := fld.value(f); ok {
+			attrs = append(attrs, fld.attr, v)
+		}
 	}
 	return attrs
 }
