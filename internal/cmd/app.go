@@ -38,6 +38,15 @@ func NewApp() *cobra.Command {
 // a plain `go build` yields "dev".
 var version = "dev"
 
+type onceCollector interface {
+	CollectOnce() error
+}
+
+// newCollector is a test seam over the concrete collector constructor.
+var newCollector = func(outputFile string, noTimestamp bool) onceCollector {
+	return collector.NewFeaturesCollector(outputFile, noTimestamp)
+}
+
 func Start(ctx context.Context, cfg Config) error {
 	slog.Info("Starting rbln-npu-feature-discovery",
 		"version", version,
@@ -61,14 +70,19 @@ func Start(ctx context.Context, cfg Config) error {
 		}
 	}()
 
-	collector := collector.NewFeaturesCollector(cfg.OutputFile, cfg.NoTimestamp)
+	c := newCollector(cfg.OutputFile, cfg.NoTimestamp)
 
 	if cfg.Oneshot {
-		return collector.CollectOnce()
+		return c.CollectOnce()
 	}
 
-	if err := collector.CollectOnce(); err != nil {
+	// failedCycles makes the failure→recovery transition explicit in the
+	// logs: a recovered cycle with unchanged labels would otherwise leave
+	// only an error stream that silently stops.
+	failedCycles := 0
+	if err := c.CollectOnce(); err != nil {
 		slog.Error("Initial collection failed", "err", err)
+		failedCycles = 1
 	}
 
 	ticker := time.NewTicker(cfg.SleepInterval)
@@ -80,8 +94,12 @@ func Start(ctx context.Context, cfg Config) error {
 			slog.Info("Shutting down", "reason", context.Cause(ctx))
 			return nil
 		case <-ticker.C:
-			if err := collector.CollectOnce(); err != nil {
+			if err := c.CollectOnce(); err != nil {
+				failedCycles++
 				slog.Error("Periodic collection failed", "err", err)
+			} else if failedCycles > 0 {
+				slog.Info("Collection recovered", "failedCycles", failedCycles)
+				failedCycles = 0
 			}
 		}
 	}

@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -47,6 +48,62 @@ func (b *syncBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+// flakyCollector fails its first `failures` collections, then succeeds.
+type flakyCollector struct {
+	failures int
+	calls    int
+}
+
+func (f *flakyCollector) CollectOnce() error {
+	f.calls++
+	if f.calls <= f.failures {
+		return fmt.Errorf("simulated failure %d", f.calls)
+	}
+	return nil
+}
+
+// A successful collection after failed cycles must leave explicit log
+// evidence — with unchanged labels the snapshot stays silent, so without a
+// recovery log the error stream just stops and recovery is only inferable.
+func TestStartLogsRecoveryAfterFailedCycles(t *testing.T) {
+	buf := &syncBuffer{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	prevNew := newCollector
+	newCollector = func(string, bool) onceCollector { return &flakyCollector{failures: 2} }
+	t.Cleanup(func() { newCollector = prevNew })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := Config{
+		OutputFile:    filepath.Join(t.TempDir(), "labels"),
+		SleepInterval: 20 * time.Millisecond,
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- Start(ctx, cfg) }()
+
+	deadline := time.After(10 * time.Second)
+	for !strings.Contains(buf.String(), "Collection recovered") {
+		select {
+		case err := <-done:
+			t.Fatalf("Start returned early: %v, logs: %s", err, buf.String())
+		case <-deadline:
+			t.Fatalf("recovery never logged: %s", buf.String())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Start() = %v, want nil", err)
+	}
+	if !strings.Contains(buf.String(), `"failedCycles":2`) {
+		t.Fatalf("recovery must count the failed cycles, got: %s", buf.String())
+	}
 }
 
 // The real signal path: a delivered SIGTERM must both return nil and leave a
