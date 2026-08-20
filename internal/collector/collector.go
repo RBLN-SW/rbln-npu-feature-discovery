@@ -29,37 +29,68 @@ func newFeatures() Features {
 	return Features{NPUPresent: false}
 }
 
+// labelField ties one label to its slog key and value accessor. toPlainText
+// and logAttrs both iterate labelFields, so the published file and the log
+// snapshot cannot drift apart.
+type labelField struct {
+	label string
+	attr  string
+	value func(Features) (any, bool)
+}
+
+func strField(label, attr string, get func(Features) *string) labelField {
+	return labelField{label, attr, func(f Features) (any, bool) {
+		if p := get(f); p != nil {
+			return *p, true
+		}
+		return nil, false
+	}}
+}
+
+var labelFields = []labelField{
+	{"npu.present", "npuPresent", func(f Features) (any, bool) { return f.NPUPresent, true }},
+	{"npu.count", "npuCount", func(f Features) (any, bool) {
+		if f.NPUCount == nil {
+			return nil, false
+		}
+		return *f.NPUCount, true
+	}},
+	strField("npu.product", "npuProduct", func(f Features) *string { return f.NPUProduct }),
+	strField("driver-version.full", "driverVersionFull", func(f Features) *string { return f.DriverVersionFull }),
+	strField("driver-version.major", "driverVersionMajor", func(f Features) *string { return f.DriverVersionMajor }),
+	strField("driver-version.minor", "driverVersionMinor", func(f Features) *string { return f.DriverVersionMinor }),
+	strField("driver-version.patch", "driverVersionPatch", func(f Features) *string { return f.DriverVersionPatch }),
+	strField("driver-version.revision", "driverVersionRevision", func(f Features) *string { return f.DriverVersionRevision }),
+}
+
 func (f Features) toPlainText() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s/npu.present=%t\n", labelPrefix, f.NPUPresent)
-	if f.NPUCount != nil {
-		fmt.Fprintf(&b, "%s/npu.count=%d\n", labelPrefix, *f.NPUCount)
-	}
-	if f.NPUProduct != nil {
-		fmt.Fprintf(&b, "%s/npu.product=%s\n", labelPrefix, *f.NPUProduct)
-	}
-	if f.DriverVersionFull != nil {
-		fmt.Fprintf(&b, "%s/driver-version.full=%s\n", labelPrefix, *f.DriverVersionFull)
-	}
-	if f.DriverVersionMajor != nil {
-		fmt.Fprintf(&b, "%s/driver-version.major=%s\n", labelPrefix, *f.DriverVersionMajor)
-	}
-	if f.DriverVersionMinor != nil {
-		fmt.Fprintf(&b, "%s/driver-version.minor=%s\n", labelPrefix, *f.DriverVersionMinor)
-	}
-	if f.DriverVersionPatch != nil {
-		fmt.Fprintf(&b, "%s/driver-version.patch=%s\n", labelPrefix, *f.DriverVersionPatch)
-	}
-	if f.DriverVersionRevision != nil {
-		fmt.Fprintf(&b, "%s/driver-version.revision=%s\n", labelPrefix, *f.DriverVersionRevision)
+	for _, fld := range labelFields {
+		if v, ok := fld.value(f); ok {
+			fmt.Fprintf(&b, "%s/%s=%v\n", labelPrefix, fld.label, v)
+		}
 	}
 	return b.String()
 }
 
+// logAttrs renders the label set as slog key-values so a log reader can
+// reconstruct exactly what was published without access to the output file.
+func (f Features) logAttrs() []any {
+	var attrs []any
+	for _, fld := range labelFields {
+		if v, ok := fld.value(f); ok {
+			attrs = append(attrs, fld.attr, v)
+		}
+	}
+	return attrs
+}
+
 type FeaturesCollector struct {
-	outputFile  string
-	noTimestamp bool
-	pciIDs      *pciids.PCIIDsLookup
+	outputFile     string
+	noTimestamp    bool
+	pciIDs         *pciids.PCIIDsLookup
+	lastPublished  string
+	lastSkippedPFs string
 }
 
 func NewFeaturesCollector(outputFile string, noTimestamp bool) *FeaturesCollector {
@@ -72,9 +103,9 @@ func NewFeaturesCollector(outputFile string, noTimestamp bool) *FeaturesCollecto
 		c.pciIDs, err = pciids.LoadRebellionsPCIIDs(path)
 	}
 	if err != nil {
-		slog.Warn("pci.ids unavailable; product fallback disabled", "err", err)
+		slog.Warn("Failed to load pci.ids", "err", err, "effect", "product fallback disabled")
 	} else {
-		slog.Info("pci.ids loaded", "path", path, "entries", c.pciIDs.Len())
+		slog.Info("Loaded pci.ids", "path", path, "entries", c.pciIDs.Len())
 	}
 	return c
 }
@@ -93,22 +124,55 @@ func (c *FeaturesCollector) CollectOnce() error {
 	return nil
 }
 
+// discoverDevices is a test seam over the sysfs device scan.
+var discoverDevices = sysfs.DiscoverDevices
+
+// logSkippedPFs leaves log evidence for why npu.count excludes SR-IOV PFs —
+// the only way to see the exclusion from kubectl logs. Change-only, like the
+// label snapshot, so an SR-IOV steady state stays quiet.
+func (c *FeaturesCollector) logSkippedPFs(addrs []string) {
+	key := strings.Join(addrs, ",")
+	if key == c.lastSkippedPFs {
+		return
+	}
+	c.lastSkippedPFs = key
+	if len(addrs) > 0 {
+		slog.Info("Skipping SR-IOV physical functions", "pciAddresses", addrs, "effect", "excluded from npu.count")
+	}
+}
+
 func (c *FeaturesCollector) collectFromSysfs(features *Features) error {
-	devices, err := sysfs.DiscoverDevices()
+	devices, skippedPFs, err := discoverDevices()
 	if err != nil {
 		return err
 	}
 
-	if len(devices) > 0 {
-		features.NPUPresent = true
-		features.NPUCount = ptr(len(devices))
+	c.logSkippedPFs(skippedPFs)
 
-		applyProduct(features, c.resolveProduct(devices[0].DeviceID))
+	if len(devices) == 0 {
+		// npu.present=false is a valid steady state; skipping the driver
+		// lookup keeps it free of a per-cycle "not found" warn.
+		return nil
 	}
 
-	driverVersion, found, err := sysfs.ReadDriverVersion()
-	if err != nil || !found {
+	features.NPUPresent = true
+	features.NPUCount = ptr(len(devices))
+	applyProduct(features, c.resolveProduct(devices[0].DeviceID))
+
+	return collectDriverVersion(features)
+}
+
+// readDriverVersion is a test seam over the fixed sysfs path.
+var readDriverVersion = sysfs.ReadDriverVersion
+
+func collectDriverVersion(features *Features) error {
+	driverVersion, found, err := readDriverVersion()
+	if err != nil {
 		return err
+	}
+	if !found {
+		slog.Warn("Driver version not found in sysfs", "effect", "driver-version labels omitted")
+		return nil
 	}
 
 	semver, revision, major, minor, patch, err := parseDriverVersion(driverVersion)
@@ -133,7 +197,7 @@ func (c *FeaturesCollector) collectFromSysfs(features *Features) error {
 func (c *FeaturesCollector) resolveProduct(deviceID string) string {
 	name, found, err := sysfs.ReadCardName()
 	if err != nil {
-		slog.Debug("failed to read card_name", "err", err)
+		slog.Warn("Failed to read card_name", "err", err, "effect", "falling back to pci.ids for product name")
 	}
 	if found {
 		return name
@@ -149,18 +213,19 @@ func (c *FeaturesCollector) resolveProduct(deviceID string) string {
 // npu.present/npu.count on the node.
 func applyProduct(features *Features, product string) {
 	if product == "" {
-		slog.Warn("could not resolve product name; omitting npu.product label")
+		slog.Warn("Could not resolve product name", "effect", "npu.product label omitted")
 		return
 	}
 	features.NPUProduct = ptr(product)
 }
 
 func (c *FeaturesCollector) save(features Features) error {
-	text := features.toPlainText()
+	plain := features.toPlainText()
+	text := plain
 
 	if !c.noTimestamp {
 		expiry := time.Now().Add(time.Hour).Format(time.RFC3339)
-		text = fmt.Sprintf("# +expiry-time=%s\n%s", expiry, text)
+		text = fmt.Sprintf("# +expiry-time=%s\n%s", expiry, plain)
 	}
 
 	dir := filepath.Dir(c.outputFile)
@@ -180,7 +245,14 @@ func (c *FeaturesCollector) save(features Features) error {
 		return fmt.Errorf("publishing feature file: %w", err)
 	}
 
-	slog.Debug("features saved", "path", c.outputFile)
+	// Snapshot on change only: keeps steady state quiet while making the
+	// published label set reconstructable from the logs.
+	if plain != c.lastPublished {
+		c.lastPublished = plain
+		slog.Info("Feature labels published", features.logAttrs()...)
+	}
+
+	slog.Debug("Features saved", "path", c.outputFile)
 	return nil
 }
 

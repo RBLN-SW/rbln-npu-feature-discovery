@@ -68,6 +68,8 @@ RBLN NPU Feature Discovery accepts both flags and environment variables. Default
 | `--oneshot` | `RBLN_NPU_FEATURE_DISCOVERY_ONESHOT` | `false` | Collect features once and exit. Used by the Job template. |
 | `--no-timestamp` | `RBLN_NPU_FEATURE_DISCOVERY_NO_TIMESTAMP` | `false` | Skip writing the hourly expiry comment required by NFD. |
 | `--rbln-daemon-url` (deprecated) | `RBLN_NPU_FEATURE_DISCOVERY_RBLN_DAEMON_URL` (ignored) | — | No-op kept for compatibility with manifests that still pass it (e.g. rbln-npu-operator); daemon collection was removed. |
+| — | `RBLN_NPU_FEATURE_DISCOVERY_LOG_LEVEL` | `info` | Log verbosity: `error`, `warning` (or `warn`), `info`, `debug`. |
+| — | `RBLN_NPU_FEATURE_DISCOVERY_LOG_FORMAT` | `json` | Log output format: `json`, `text`. |
 
 Example usage: `rbln-npu-feature-discovery --sleep-interval 120`.
 
@@ -75,7 +77,9 @@ Example usage: `rbln-npu-feature-discovery --sleep-interval 120`.
 
 | Symptom | Suggested action |
 |---------|------------------|
-| Pod logs `could not resolve product name` | The driver predates the `card_name` sysfs attribute and the device id is missing from the bundled `deps/rebellions-pci.ids` — update the driver or add the device entry. |
+| Pod logs `Could not resolve product name` | The driver predates the `card_name` sysfs attribute and the device id is missing from the bundled `deps/rebellions-pci.ids` — update the driver or add the device entry. |
+| Pod logs `Driver version not found in sysfs` | `/sys/class/rebellions/rbln0/kernel_version` is absent, so the `driver-version.*` labels are omitted — verify the NPU driver is loaded on the node. |
+| `npu.count` is lower than the number of installed NPUs | PFs whose SR-IOV VFs are enabled are excluded from the count — the pod logs `Skipping SR-IOV physical functions` with the affected PCI addresses. |
 | Pod logs `output path validation failed` | Ensure `/etc/kubernetes/node-feature-discovery/features.d/` exists on the node before starting the DaemonSet. |
 | Labels do not appear on the node | Verify that NFD is running with the local source enabled and that the feature directory is mounted read-only into the `nfd-worker` pod. |
 | DaemonSet remains Pending | Confirm that NFD has applied `feature.node.kubernetes.io/pci-1200_1eff.present` or update the affinity to match your labeling scheme. |

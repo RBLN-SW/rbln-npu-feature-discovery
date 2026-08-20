@@ -45,9 +45,11 @@ IMAGE_NAME ?= $(REGISTRY)/rbln-npu-feature-discovery
 IMAGE_TAG ?= $(VERSION)
 IMAGE := $(IMAGE_NAME):$(IMAGE_TAG)
 
+VERSION_LDFLAG := -X github.com/rebellions-sw/rbln-npu-feature-discovery/internal/cmd.version=$(VERSION)
+
 .PHONY: build
 build:
-	CGO_ENABLED=0 $(GO) build -o bin/$(BINARY) $(CMD_DIR)
+	CGO_ENABLED=0 $(GO) build -ldflags "$(VERSION_LDFLAG)" -o bin/$(BINARY) $(CMD_DIR)
 
 .PHONY: clean
 clean:

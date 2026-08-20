@@ -22,19 +22,23 @@ type Device struct {
 	DeviceID string
 }
 
-func DiscoverDevices() ([]Device, error) {
+// DiscoverDevices returns the Rebellions PCI devices plus the PCI addresses
+// of physical functions that were skipped because their SR-IOV VFs are
+// enabled — the caller logs those so a lowered npu.count stays explainable.
+func DiscoverDevices() ([]Device, []string, error) {
 	entries, err := os.ReadDir(pciDevicesPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var devices []Device
+	var skippedPFs []string
 	for _, entry := range entries {
 		devicePath := filepath.Join(pciDevicesPath, entry.Name())
 
 		vendorBytes, err := os.ReadFile(filepath.Join(devicePath, "vendor"))
 		if err != nil {
-			return nil, fmt.Errorf("failed to read vendor: %w", err)
+			return nil, nil, fmt.Errorf("failed to read vendor: %w", err)
 		}
 		if strings.TrimSpace(string(vendorBytes)) != rblnVendorID {
 			continue
@@ -44,13 +48,14 @@ func DiscoverDevices() ([]Device, error) {
 		if data, err := os.ReadFile(sriovNumvfsPath); err == nil {
 			if numvfs, parseErr := strconv.Atoi(strings.TrimSpace(string(data))); parseErr == nil && numvfs != 0 {
 				// skip PF when SR-IOV is enabled
+				skippedPFs = append(skippedPFs, entry.Name())
 				continue
 			}
 		}
 
 		deviceIDBytes, err := os.ReadFile(filepath.Join(devicePath, "device"))
 		if err != nil {
-			return nil, fmt.Errorf("failed to read device id: %w", err)
+			return nil, nil, fmt.Errorf("failed to read device id: %w", err)
 		}
 		deviceID := strings.TrimSpace(string(deviceIDBytes))
 		deviceID = strings.TrimPrefix(deviceID, "0x")
@@ -58,7 +63,7 @@ func DiscoverDevices() ([]Device, error) {
 		devices = append(devices, Device{DeviceID: deviceID})
 	}
 
-	return devices, nil
+	return devices, skippedPFs, nil
 }
 
 // ReadCardName returns the product name (e.g. "RBLN-CR13") published by the
