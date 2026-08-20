@@ -69,6 +69,15 @@ func (f Features) logAttrs() []any {
 	if f.DriverVersionFull != nil {
 		attrs = append(attrs, "driverVersionFull", *f.DriverVersionFull)
 	}
+	if f.DriverVersionMajor != nil {
+		attrs = append(attrs, "driverVersionMajor", *f.DriverVersionMajor)
+	}
+	if f.DriverVersionMinor != nil {
+		attrs = append(attrs, "driverVersionMinor", *f.DriverVersionMinor)
+	}
+	if f.DriverVersionPatch != nil {
+		attrs = append(attrs, "driverVersionPatch", *f.DriverVersionPatch)
+	}
 	if f.DriverVersionRevision != nil {
 		attrs = append(attrs, "driverVersionRevision", *f.DriverVersionRevision)
 	}

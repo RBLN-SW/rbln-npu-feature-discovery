@@ -30,6 +30,11 @@ func TestSaveLogsSnapshotOnChangeOnly(t *testing.T) {
 	f.NPUPresent = true
 	f.NPUCount = ptr(2)
 	f.NPUProduct = ptr("RBLN-CA22")
+	f.DriverVersionFull = ptr("1.2.3")
+	f.DriverVersionMajor = ptr("1")
+	f.DriverVersionMinor = ptr("2")
+	f.DriverVersionPatch = ptr("3")
+	f.DriverVersionRevision = ptr("rebel1")
 
 	if err := c.save(f); err != nil {
 		t.Fatalf("save: %v", err)
@@ -38,7 +43,13 @@ func TestSaveLogsSnapshotOnChangeOnly(t *testing.T) {
 	if !strings.Contains(first, `"msg":"Feature labels published"`) {
 		t.Fatalf("first save must log a snapshot, got: %s", first)
 	}
-	for _, want := range []string{`"npuPresent":true`, `"npuCount":2`, `"npuProduct":"RBLN-CA22"`} {
+	// Every label written by toPlainText must appear in the snapshot.
+	for _, want := range []string{
+		`"npuPresent":true`, `"npuCount":2`, `"npuProduct":"RBLN-CA22"`,
+		`"driverVersionFull":"1.2.3"`, `"driverVersionMajor":"1"`,
+		`"driverVersionMinor":"2"`, `"driverVersionPatch":"3"`,
+		`"driverVersionRevision":"rebel1"`,
+	} {
 		if !strings.Contains(first, want) {
 			t.Errorf("snapshot missing %s, got: %s", want, first)
 		}
