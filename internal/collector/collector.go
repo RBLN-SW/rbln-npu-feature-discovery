@@ -123,18 +123,24 @@ func (c *FeaturesCollector) CollectOnce() error {
 	return nil
 }
 
+// discoverDevices is a test seam over the sysfs device scan.
+var discoverDevices = sysfs.DiscoverDevices
+
 func (c *FeaturesCollector) collectFromSysfs(features *Features) error {
-	devices, err := sysfs.DiscoverDevices()
+	devices, err := discoverDevices()
 	if err != nil {
 		return err
 	}
 
-	if len(devices) > 0 {
-		features.NPUPresent = true
-		features.NPUCount = ptr(len(devices))
-
-		applyProduct(features, c.resolveProduct(devices[0].DeviceID))
+	if len(devices) == 0 {
+		// npu.present=false is a valid steady state; skipping the driver
+		// lookup keeps it free of a per-cycle "not found" warn.
+		return nil
 	}
+
+	features.NPUPresent = true
+	features.NPUCount = ptr(len(devices))
+	applyProduct(features, c.resolveProduct(devices[0].DeviceID))
 
 	return collectDriverVersion(features)
 }

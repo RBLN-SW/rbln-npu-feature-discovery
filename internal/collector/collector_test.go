@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/rebellions-sw/rbln-npu-feature-discovery/internal/sysfs"
 )
 
 func captureLogs(t *testing.T) *bytes.Buffer {
@@ -79,6 +81,33 @@ func TestSaveLogsSnapshotOnChangeOnly(t *testing.T) {
 func TestLabelFieldsCoverAllFeatureFields(t *testing.T) {
 	if got, want := len(labelFields), reflect.TypeOf(Features{}).NumField(); got != want {
 		t.Fatalf("labelFields has %d entries, Features has %d fields — add the new field to labelFields", got, want)
+	}
+}
+
+func stubDevices(t *testing.T, devices []sysfs.Device) {
+	t.Helper()
+	prev := discoverDevices
+	discoverDevices = func() ([]sysfs.Device, error) { return devices, nil }
+	t.Cleanup(func() { discoverDevices = prev })
+}
+
+// A node without NPUs publishes npu.present=false as a steady state; it must
+// not warn about the (expectedly absent) driver version every cycle.
+func TestCollectFromSysfsSkipsDriverVersionWithoutDevices(t *testing.T) {
+	buf := captureLogs(t)
+	stubDevices(t, nil)
+	stubDriverVersion(t, "", false, nil) // would warn if consulted
+
+	f := newFeatures()
+	c := &FeaturesCollector{}
+	if err := c.collectFromSysfs(&f); err != nil {
+		t.Fatalf("collectFromSysfs: %v", err)
+	}
+	if f.NPUPresent {
+		t.Fatal("no devices must leave npu.present=false")
+	}
+	if strings.Contains(buf.String(), "Driver version not found") {
+		t.Fatalf("zero-device node must not warn about driver version, got: %s", buf.String())
 	}
 }
 
