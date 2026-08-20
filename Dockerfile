@@ -49,6 +49,7 @@ RUN chown rbln:rbln /usr/local/bin/rbln-npu-feature-discovery && \
 
 USER rbln
 
-ENV LOG_LEVEL=info LOG_FORMAT=json
+ENV RBLN_NPU_FEATURE_DISCOVERY_LOG_LEVEL=info \
+    RBLN_NPU_FEATURE_DISCOVERY_LOG_FORMAT=json
 
 ENTRYPOINT ["/usr/local/bin/rbln-npu-feature-discovery"]

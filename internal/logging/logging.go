@@ -12,20 +12,12 @@ import (
 	"time"
 )
 
-// New builds a slog logger writing to w.
-// level: "error"|"warning"|"warn"|"info"|"debug" ("" = info).
-// format: "json"|"text" ("" = json).
-func New(w io.Writer, level, format string) (*slog.Logger, error) {
-	lvl, err := parseLevel(level)
-	if err != nil {
-		return nil, err
-	}
-	f, err := parseFormat(format)
-	if err != nil {
-		return nil, err
-	}
-	return newLogger(w, lvl, f), nil
-}
+// Env vars follow the project-wide RBLN_NPU_FEATURE_DISCOVERY_* prefix so
+// generic names cannot be captured by unrelated env injection.
+const (
+	envLogLevel  = "RBLN_NPU_FEATURE_DISCOVERY_LOG_LEVEL"
+	envLogFormat = "RBLN_NPU_FEATURE_DISCOVERY_LOG_FORMAT"
+)
 
 // newLogger builds the logger from already-validated settings.
 func newLogger(w io.Writer, lvl slog.Level, format string) *slog.Logger {
@@ -44,8 +36,8 @@ func newLogger(w io.Writer, lvl slog.Level, format string) *slog.Logger {
 	return slog.New(h)
 }
 
-// SetupFromEnv reads LOG_LEVEL / LOG_FORMAT and installs the process-wide
-// default logger (stdout).
+// SetupFromEnv reads RBLN_NPU_FEATURE_DISCOVERY_LOG_LEVEL / _LOG_FORMAT and
+// installs the process-wide default logger (stdout).
 // Empty values default to info/json (the production defaults). Invalid
 // values do not kill the process: only the offending variable falls back
 // to its default, and a Warn carrying a "fallback" key is emitted through
@@ -58,22 +50,22 @@ func SetupFromEnv() {
 // invalid-value warns through it. Split from SetupFromEnv so tests can
 // observe the warn output.
 func setupFromEnv(w io.Writer) *slog.Logger {
-	lvl, levelErr := parseLevel(os.Getenv("LOG_LEVEL"))
+	lvl, levelErr := parseLevel(os.Getenv(envLogLevel))
 	if levelErr != nil {
 		lvl = slog.LevelInfo
 	}
-	format, formatErr := parseFormat(os.Getenv("LOG_FORMAT"))
+	format, formatErr := parseFormat(os.Getenv(envLogFormat))
 	if formatErr != nil {
 		format = "json"
 	}
 	logger := newLogger(w, lvl, format)
-	// With LOG_LEVEL=error an invalid LOG_FORMAT's warn is suppressed by the
-	// gate — accepted, since the error gate was chosen explicitly.
+	// With level=error an invalid format's warn is suppressed by the gate —
+	// accepted, since the error gate was chosen explicitly.
 	if levelErr != nil {
-		logger.Warn("Invalid LOG_LEVEL, using default", "err", levelErr, "fallback", "info")
+		logger.Warn("Invalid "+envLogLevel+", using default", "err", levelErr, "fallback", "info")
 	}
 	if formatErr != nil {
-		logger.Warn("Invalid LOG_FORMAT, using default", "err", formatErr, "fallback", "json")
+		logger.Warn("Invalid "+envLogFormat+", using default", "err", formatErr, "fallback", "json")
 	}
 	return logger
 }
@@ -111,7 +103,8 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	}
 	switch a.Key {
 	case slog.TimeKey:
-		// User attrs may use the "time" key — convert only the record timestamp.
+		// String-valued user "time" attrs pass through; a time-valued one is
+		// indistinguishable from the record timestamp and gets rewritten too.
 		if a.Value.Kind() != slog.KindTime {
 			return a
 		}

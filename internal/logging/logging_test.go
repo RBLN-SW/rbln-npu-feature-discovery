@@ -4,19 +4,32 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"regexp"
 	"strings"
 	"testing"
 )
 
+// mustLogger builds a logger from string settings, failing the test on
+// invalid input — the test-side equivalent of a validated production setup.
+func mustLogger(t *testing.T, w io.Writer, level, format string) *slog.Logger {
+	t.Helper()
+	lvl, err := parseLevel(level)
+	if err != nil {
+		t.Fatalf("parseLevel(%q): %v", level, err)
+	}
+	f, err := parseFormat(format)
+	if err != nil {
+		t.Fatalf("parseFormat(%q): %v", format, err)
+	}
+	return newLogger(w, lvl, f)
+}
+
 func logLine(t *testing.T, level, format, emit string) map[string]any {
 	t.Helper()
 	var buf bytes.Buffer
-	logger, err := New(&buf, level, format)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	logger := mustLogger(t, &buf, level, format)
 	switch emit {
 	case "info":
 		logger.Info("Started component", "port", 8080)
@@ -33,7 +46,7 @@ func logLine(t *testing.T, level, format, emit string) map[string]any {
 	return m
 }
 
-func TestNewDefaultsToInfoJSONWithNormalizedKeys(t *testing.T) {
+func TestLoggerDefaultsToInfoJSONWithNormalizedKeys(t *testing.T) {
 	m := logLine(t, "", "", "info")
 	if m == nil {
 		t.Fatal("info line suppressed at default level")
@@ -55,33 +68,30 @@ func TestNewDefaultsToInfoJSONWithNormalizedKeys(t *testing.T) {
 	}
 }
 
-func TestNewGatesDebugAtInfo(t *testing.T) {
+func TestLoggerGatesDebugAtInfo(t *testing.T) {
 	if m := logLine(t, "info", "json", "debug"); m != nil {
 		t.Fatalf("debug line leaked at info level: %v", m)
 	}
 }
 
-func TestNewRejectsTraceLevel(t *testing.T) {
-	if _, err := New(&bytes.Buffer{}, "trace", "json"); err == nil {
+func TestParseLevelRejectsTrace(t *testing.T) {
+	if _, err := parseLevel("trace"); err == nil {
 		t.Fatal("want error: this component logs nothing below debug")
 	}
 }
 
-func TestNewRejectsUnknownLevelAndFormat(t *testing.T) {
-	if _, err := New(&bytes.Buffer{}, "loud", "json"); err == nil {
+func TestParseRejectsUnknownLevelAndFormat(t *testing.T) {
+	if _, err := parseLevel("loud"); err == nil {
 		t.Fatal("want error for unknown level")
 	}
-	if _, err := New(&bytes.Buffer{}, "info", "yaml"); err == nil {
+	if _, err := parseFormat("yaml"); err == nil {
 		t.Fatal("want error for unknown format")
 	}
 }
 
-func TestNewPassesThroughUserTimeAttr(t *testing.T) {
+func TestLoggerPassesThroughUserTimeAttr(t *testing.T) {
 	var buf bytes.Buffer
-	logger, err := New(&buf, "info", "json")
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	logger := mustLogger(t, &buf, "info", "json")
 	logger.Info("Measured duration", "time", "1.5s")
 	var m map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
@@ -92,12 +102,9 @@ func TestNewPassesThroughUserTimeAttr(t *testing.T) {
 	}
 }
 
-func TestNewTextFormat(t *testing.T) {
+func TestLoggerTextFormat(t *testing.T) {
 	var buf bytes.Buffer
-	logger, err := New(&buf, "", "text")
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	logger := mustLogger(t, &buf, "", "text")
 	logger.Info("Started component", "port", 8080)
 	out := buf.String()
 	for _, want := range []string{"level=info", `msg="Started component"`, "ts=", "port=8080"} {
@@ -109,25 +116,22 @@ func TestNewTextFormat(t *testing.T) {
 
 // Both "warning" and the output spelling "warn" configure the warn gate;
 // output always spells "warn".
-func TestNewWarnLevelInputAliasesAndOutputSpelling(t *testing.T) {
+func TestLoggerWarnLevelInputAliasesAndOutputSpelling(t *testing.T) {
 	for _, level := range []string{"warning", "warn"} {
 		var buf bytes.Buffer
-		logger, err := New(&buf, level, "json")
-		if err != nil {
-			t.Fatalf("New(%q): %v", level, err)
-		}
+		logger := mustLogger(t, &buf, level, "json")
 		logger.Warn("Request failed")
 		var m map[string]any
 		if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
 			t.Fatalf("not JSON: %v: %s", err, buf.String())
 		}
 		if m["level"] != "warn" {
-			t.Fatalf("New(%q): level = %v, want warn (output spelling)", level, m["level"])
+			t.Fatalf("level(%q) = %v, want warn (output spelling)", level, m["level"])
 		}
 	}
 }
 
-func TestNewCallerPresentAtDebugGate(t *testing.T) {
+func TestLoggerCallerPresentAtDebugGate(t *testing.T) {
 	m := logLine(t, "debug", "json", "info")
 	if m == nil {
 		t.Fatal("info line suppressed at debug level")
@@ -157,8 +161,8 @@ func TestTrimPath(t *testing.T) {
 func TestSetupFromEnvFallsBack(t *testing.T) {
 	old := slog.Default()
 	defer slog.SetDefault(old)
-	t.Setenv("LOG_LEVEL", "bogus")
-	t.Setenv("LOG_FORMAT", "json")
+	t.Setenv(envLogLevel, "bogus")
+	t.Setenv(envLogFormat, "json")
 	SetupFromEnv()
 	ctx := context.Background()
 	if !slog.Default().Enabled(ctx, slog.LevelInfo) {
@@ -170,16 +174,16 @@ func TestSetupFromEnvFallsBack(t *testing.T) {
 }
 
 func TestSetupFromEnvInvalidLevelEmitsWarn(t *testing.T) {
-	t.Setenv("LOG_LEVEL", "bogus")
-	t.Setenv("LOG_FORMAT", "json")
+	t.Setenv(envLogLevel, "bogus")
+	t.Setenv(envLogFormat, "json")
 	var buf bytes.Buffer
 	setupFromEnv(&buf)
 	var m map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
 		t.Fatalf("warn output not JSON: %v: %s", err, buf.String())
 	}
-	if m["msg"] != "Invalid LOG_LEVEL, using default" {
-		t.Fatalf("msg = %v, want invalid-LOG_LEVEL warn", m["msg"])
+	if m["msg"] != "Invalid "+envLogLevel+", using default" {
+		t.Fatalf("msg = %v, want invalid-level warn", m["msg"])
 	}
 	if m["fallback"] != "info" {
 		t.Fatalf("fallback = %v, want info", m["fallback"])
@@ -187,8 +191,8 @@ func TestSetupFromEnvInvalidLevelEmitsWarn(t *testing.T) {
 }
 
 func TestSetupFromEnvInvalidFormatFallsBackToJSON(t *testing.T) {
-	t.Setenv("LOG_LEVEL", "")
-	t.Setenv("LOG_FORMAT", "yaml")
+	t.Setenv(envLogLevel, "")
+	t.Setenv(envLogFormat, "yaml")
 	var buf bytes.Buffer
 	logger := setupFromEnv(&buf)
 	// The warn itself must already be in the fallback format: JSON.
@@ -196,8 +200,8 @@ func TestSetupFromEnvInvalidFormatFallsBackToJSON(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
 		t.Fatalf("fallback output not JSON: %v: %s", err, buf.String())
 	}
-	if m["msg"] != "Invalid LOG_FORMAT, using default" {
-		t.Fatalf("msg = %v, want invalid-LOG_FORMAT warn", m["msg"])
+	if m["msg"] != "Invalid "+envLogFormat+", using default" {
+		t.Fatalf("msg = %v, want invalid-format warn", m["msg"])
 	}
 	if m["fallback"] != "json" {
 		t.Fatalf("fallback = %v, want json", m["fallback"])
