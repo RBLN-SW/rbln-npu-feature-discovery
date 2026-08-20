@@ -86,10 +86,11 @@ func (f Features) logAttrs() []any {
 }
 
 type FeaturesCollector struct {
-	outputFile    string
-	noTimestamp   bool
-	pciIDs        *pciids.PCIIDsLookup
-	lastPublished string
+	outputFile     string
+	noTimestamp    bool
+	pciIDs         *pciids.PCIIDsLookup
+	lastPublished  string
+	lastSkippedPFs string
 }
 
 func NewFeaturesCollector(outputFile string, noTimestamp bool) *FeaturesCollector {
@@ -126,11 +127,27 @@ func (c *FeaturesCollector) CollectOnce() error {
 // discoverDevices is a test seam over the sysfs device scan.
 var discoverDevices = sysfs.DiscoverDevices
 
+// logSkippedPFs leaves log evidence for why npu.count excludes SR-IOV PFs —
+// the only way to see the exclusion from kubectl logs. Change-only, like the
+// label snapshot, so an SR-IOV steady state stays quiet.
+func (c *FeaturesCollector) logSkippedPFs(addrs []string) {
+	key := strings.Join(addrs, ",")
+	if key == c.lastSkippedPFs {
+		return
+	}
+	c.lastSkippedPFs = key
+	if len(addrs) > 0 {
+		slog.Info("Skipping SR-IOV physical functions", "pciAddresses", addrs, "effect", "excluded from npu.count")
+	}
+}
+
 func (c *FeaturesCollector) collectFromSysfs(features *Features) error {
-	devices, err := discoverDevices()
+	devices, skippedPFs, err := discoverDevices()
 	if err != nil {
 		return err
 	}
+
+	c.logSkippedPFs(skippedPFs)
 
 	if len(devices) == 0 {
 		// npu.present=false is a valid steady state; skipping the driver

@@ -84,10 +84,10 @@ func TestLabelFieldsCoverAllFeatureFields(t *testing.T) {
 	}
 }
 
-func stubDevices(t *testing.T, devices []sysfs.Device) {
+func stubDevices(t *testing.T, devices []sysfs.Device, skippedPFs []string) {
 	t.Helper()
 	prev := discoverDevices
-	discoverDevices = func() ([]sysfs.Device, error) { return devices, nil }
+	discoverDevices = func() ([]sysfs.Device, []string, error) { return devices, skippedPFs, nil }
 	t.Cleanup(func() { discoverDevices = prev })
 }
 
@@ -95,7 +95,7 @@ func stubDevices(t *testing.T, devices []sysfs.Device) {
 // not warn about the (expectedly absent) driver version every cycle.
 func TestCollectFromSysfsSkipsDriverVersionWithoutDevices(t *testing.T) {
 	buf := captureLogs(t)
-	stubDevices(t, nil)
+	stubDevices(t, nil, nil)
 	stubDriverVersion(t, "", false, nil) // would warn if consulted
 
 	f := newFeatures()
@@ -108,6 +108,35 @@ func TestCollectFromSysfsSkipsDriverVersionWithoutDevices(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "Driver version not found") {
 		t.Fatalf("zero-device node must not warn about driver version, got: %s", buf.String())
+	}
+}
+
+// An SR-IOV PF excluded from npu.count must be discoverable from the logs,
+// but a stable exclusion must not repeat every cycle.
+func TestCollectFromSysfsLogsSkippedPFsOnChangeOnly(t *testing.T) {
+	buf := captureLogs(t)
+	c := &FeaturesCollector{}
+	stubDevices(t, nil, []string{"0000:17:00.0"})
+
+	f := newFeatures()
+	if err := c.collectFromSysfs(&f); err != nil {
+		t.Fatalf("collectFromSysfs: %v", err)
+	}
+	first := buf.String()
+	if !strings.Contains(first, "Skipping SR-IOV physical functions") ||
+		!strings.Contains(first, "0000:17:00.0") {
+		t.Fatalf("skipped PF must be logged with its address, got: %s", first)
+	}
+	if !strings.Contains(first, `"effect":"excluded from npu.count"`) {
+		t.Fatalf("skip log must carry the effect key, got: %s", first)
+	}
+
+	buf.Reset()
+	if err := c.collectFromSysfs(&f); err != nil {
+		t.Fatalf("collectFromSysfs: %v", err)
+	}
+	if strings.Contains(buf.String(), "Skipping SR-IOV") {
+		t.Fatalf("unchanged skip set must not re-log, got: %s", buf.String())
 	}
 }
 
