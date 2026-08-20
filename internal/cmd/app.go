@@ -34,8 +34,13 @@ func NewApp() *cobra.Command {
 	return cmd
 }
 
+// version is stamped by the build via -ldflags -X (see Makefile/Dockerfile);
+// a plain `go build` yields "dev".
+var version = "dev"
+
 func Start(ctx context.Context, cfg Config) error {
 	slog.Info("Starting rbln-npu-feature-discovery",
+		"version", version,
 		"outputFile", cfg.OutputFile,
 		"sleepInterval", cfg.SleepInterval.String(),
 		"oneshot", cfg.Oneshot,

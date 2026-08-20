@@ -12,9 +12,12 @@ COPY . .
 
 ENV CGO_ENABLED=0
 
+ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    go build -o /usr/local/bin/rbln-npu-feature-discovery ./cmd/rbln-npu-feature-discovery
+    go build \
+    -ldflags "-X github.com/rebellions-sw/rbln-npu-feature-discovery/internal/cmd.version=${VERSION}" \
+    -o /usr/local/bin/rbln-npu-feature-discovery ./cmd/rbln-npu-feature-discovery
 
 FROM redhat/ubi9-minimal:9.6
 ARG VERSION
