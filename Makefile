@@ -47,6 +47,45 @@ IMAGE := $(IMAGE_NAME):$(IMAGE_TAG)
 
 VERSION_LDFLAG := -X github.com/rebellions-sw/rbln-npu-feature-discovery/internal/cmd.version=$(VERSION)
 
+##@ Release versioning
+
+# The release version lives in versions.mk and is mirrored into the static
+# manifest, which is what users apply. `bump-version` rewrites both together;
+# `verify-version` fails if they ever drift apart. Overriding VERSION turns the
+# same check into "does the tree match this tag?", which is how release.yaml
+# uses it.
+MANIFEST := $(CURDIR)/deployments/static/npu-feature-discovery-daemonset.yaml
+
+.PHONY: bump-version
+bump-version: # Set the release version everywhere (make bump-version NEW_VERSION=vX.Y.Z)
+	@[ -n "$(NEW_VERSION)" ] || { echo "usage: make bump-version NEW_VERSION=vX.Y.Z"; exit 1; }
+	@echo "$(NEW_VERSION)" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$$' \
+		|| { echo "NEW_VERSION must look like vX.Y.Z, got '$(NEW_VERSION)'"; exit 1; }
+	@sed -i.bak -E 's|^VERSION[[:space:]]*\?=.*|VERSION ?= $(NEW_VERSION)|' $(CURDIR)/versions.mk
+	@sed -i.bak -E \
+		-e 's|^([[:space:]]*)app\.kubernetes\.io/version:.*|\1app.kubernetes.io/version: $(NEW_VERSION)|' \
+		-e 's|^([[:space:]]*- image:[[:space:]]*[^:]+):.*|\1:$(NEW_VERSION)|' \
+		$(MANIFEST)
+	@rm -f $(CURDIR)/versions.mk.bak $(MANIFEST).bak
+	@$(MAKE) --no-print-directory verify-version VERSION=$(NEW_VERSION)
+
+.PHONY: verify-version
+verify-version: # Fail if versions.mk and the static manifest disagree on the version
+	@rc=0; \
+	declared=$$(sed -n 's|^VERSION[[:space:]]*?=[[:space:]]*\(.*\)$$|\1|p' $(CURDIR)/versions.mk); \
+	image=$$(sed -n 's|^[[:space:]]*- image:[[:space:]]*[^:]*:\(.*\)$$|\1|p' $(MANIFEST)); \
+	labels=$$(sed -n 's|^[[:space:]]*app\.kubernetes\.io/version:[[:space:]]*\(.*\)$$|\1|p' $(MANIFEST)); \
+	[ -n "$$image" ] || { echo "no image tag found in $(MANIFEST)"; rc=1; }; \
+	[ -n "$$labels" ] || { echo "no app.kubernetes.io/version found in $(MANIFEST)"; rc=1; }; \
+	for found in $$declared $$image $$labels; do \
+		[ "$$found" = "$(VERSION)" ] || { echo "found $$found, expected $(VERSION)"; rc=1; }; \
+	done; \
+	[ $$rc -eq 0 ] || { \
+		echo "Version drift. Run: make bump-version NEW_VERSION=$(VERSION)"; \
+		exit 1; \
+	}; \
+	echo "Version $(VERSION) consistent across versions.mk and the static manifest."
+
 .PHONY: build
 build:
 	CGO_ENABLED=0 $(GO) build -ldflags "$(VERSION_LDFLAG)" -o bin/$(BINARY) $(CMD_DIR)
@@ -136,7 +175,7 @@ ensure-golangci-lint:
 	@echo "golangci-lint installation complete."
 
 .PHONY: code-check
-code-check: vet fmt lint verify-deps
+code-check: vet fmt lint verify-deps verify-version
 
 .PHONY: pre-commit-install
 pre-commit-install:

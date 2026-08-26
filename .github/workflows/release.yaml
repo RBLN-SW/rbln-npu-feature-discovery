@@ -9,8 +9,21 @@ permissions:
   contents: write
 
 jobs:
+  # Nothing is built or pushed until the tree agrees with the tag. Without this,
+  # tagging without running `make bump-version` publishes an image whose static
+  # manifest still points at the previous release.
+  verify-version:
+    name: Verify version matches the tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Check versions.mk and the static manifest against the tag
+        run: make verify-version VERSION=${{ github.ref_name }}
+
   build-amd64:
     name: Build and push amd64 image
+    needs: verify-version
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
@@ -33,6 +46,7 @@ jobs:
 
   build-arm64:
     name: Build and push arm64 image
+    needs: verify-version
     runs-on: ubuntu-22.04-rbln-arm
     steps:
       - name: Checkout repo
