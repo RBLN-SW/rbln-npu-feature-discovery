@@ -1,4 +1,5 @@
-FROM golang:1.24-alpine AS builder
+ARG GOLANG_VERSION=1.26.7
+FROM golang:${GOLANG_VERSION}-alpine AS builder
 RUN apk add --no-cache build-base git
 
 WORKDIR /src
@@ -19,7 +20,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -ldflags "-X github.com/rebellions-sw/rbln-npu-feature-discovery/internal/cmd.version=${VERSION}" \
     -o /usr/local/bin/rbln-npu-feature-discovery ./cmd/rbln-npu-feature-discovery
 
-FROM redhat/ubi9-minimal:9.6
+FROM redhat/ubi9-minimal:9.8
 ARG VERSION
 
 RUN microdnf install -y shadow-utils && \
