@@ -109,6 +109,9 @@ lint: ensure-golangci-lint # Run golangci-lint linter
 lint-fix: ensure-golangci-lint # Run golangci-lint linter and perform fixes
 	GOTOOLCHAIN=$(GOLANGCI_LINT_TOOLCHAIN) $(GOLANGCI_LINT) run --fix
 
+# Entry point of the cloud-component-release-kit rc build:
+#   make build-image IMAGE_NAME=<registry>/rbln-npu-feature-discovery VERSION=<tag> \
+#        BUILD_MULTI_PLATFORM=true PUSH_ON_BUILD=true
 .PHONY: build-image
 build-image: # Build the RBLN npu feature discovery image
 	DOCKER_BUILDKIT=1 \

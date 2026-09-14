@@ -1,5 +1,5 @@
 ARG GOLANG_VERSION=1.26.7
-FROM golang:${GOLANG_VERSION}-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:${GOLANG_VERSION}-alpine AS builder
 RUN apk add --no-cache build-base git
 
 WORKDIR /src
@@ -13,10 +13,14 @@ COPY . .
 
 ENV CGO_ENABLED=0
 
+# Set by buildx per target platform. Cross-compiling on the build host keeps the
+# Go toolchain off QEMU when the image is built for arm64.
+ARG TARGETOS TARGETARCH
+
 ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    go build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -ldflags "-X github.com/rebellions-sw/rbln-npu-feature-discovery/internal/cmd.version=${VERSION}" \
     -o /usr/local/bin/rbln-npu-feature-discovery ./cmd/rbln-npu-feature-discovery
 
