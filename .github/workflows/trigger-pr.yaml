@@ -50,8 +50,11 @@ jobs:
   go-build:
     needs: pr-title-validation
     uses: ./.github/workflows/go-build.yaml
+  go-tests:
+    needs: pr-title-validation
+    uses: ./.github/workflows/go-tests.yaml
   image-scan:
-    needs: [code-check, go-build]
+    needs: [code-check, go-build, go-tests]
     uses: ./.github/workflows/image-scan.yaml
     secrets: inherit
     with:

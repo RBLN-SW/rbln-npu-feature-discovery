@@ -3,6 +3,7 @@ include $(CURDIR)/versions.mk
 
 GO      := go
 PKG     := ./...
+GO_TEST_FLAGS ?=
 CMD_DIR := ./cmd/rbln-npu-feature-discovery
 
 LOCALBIN ?= $(CURDIR)/bin
@@ -57,7 +58,7 @@ clean:
 
 .PHONY: test
 test:
-	$(GO) test $(PKG)
+	$(GO) test $(GO_TEST_FLAGS) $(PKG)
 
 .PHONY: verify-deps
 verify-deps:
