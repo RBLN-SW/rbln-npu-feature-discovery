@@ -204,16 +204,18 @@ func TestReadDriverVersion(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		value string
+		found bool
 	}{
-		{name: "release", value: "3.4.0"},
-		{name: "revision with whitespace", value: " \t3.4.0-abc123\n"},
-		{name: "empty attribute", value: "\n"},
+		{name: "release", value: "3.4.0", found: true},
+		{name: "revision with whitespace", value: " \t3.4.0-abc123\n", found: true},
+		{name: "empty attribute"},
+		{name: "whitespace-only attribute", value: " \t\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			writeAttribute(t, root, "sys/class/rebellions/rbln0/kernel_version", tc.value)
 			version, found, err := NewReader(root).ReadDriverVersion()
-			if err != nil || !found || version != strings.TrimSpace(tc.value) {
+			if err != nil || found != tc.found || version != strings.TrimSpace(tc.value) {
 				t.Fatalf("driver version = %q, %v, %v", version, found, err)
 			}
 		})

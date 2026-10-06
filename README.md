@@ -57,7 +57,10 @@ Label values are stored as strings in Kubernetes. The “Value type” column de
 | `rebellions.ai/driver-version.major` | Integer | Major component of the driver version. | `1` |
 | `rebellions.ai/driver-version.minor` | Integer | Minor component of the driver version. | `2` |
 | `rebellions.ai/driver-version.patch` | Integer | Patch component of the driver version. | `92` |
-| `rebellions.ai/driver-version.revision` | String | Revision suffix, omitted when the driver reports no revision. | `6d00b56`, `rc3` |
+| `rebellions.ai/driver-version.revision` | String | Non-empty revision suffix, omitted when absent or when the version ends in a separator. | `6d00b56`, `rc3` |
+
+If `kernel_version` is missing or blank, only the `driver-version.*` labels are
+omitted. Hardware labels are still published and their expiry is renewed.
 
 ## Configuration
 
@@ -106,7 +109,7 @@ labels; that remains an integration/E2E responsibility.
 | Symptom | Suggested action |
 |---------|------------------|
 | Pod logs `Could not resolve product name` | The driver predates the `card_name` sysfs attribute and the device id is missing from the bundled `deps/rebellions-pci.ids` — update the driver or add the device entry. |
-| Pod logs `Driver version not found in sysfs` | `/sys/class/rebellions/rbln0/kernel_version` is absent, so the `driver-version.*` labels are omitted — verify the NPU driver is loaded on the node. |
+| Pod logs `Driver version not found in sysfs` | `/sys/class/rebellions/rbln0/kernel_version` is absent or blank, so the `driver-version.*` labels are omitted — verify the NPU driver is loaded on the node. |
 | `npu.count` is lower than the number of installed NPUs | PFs whose SR-IOV VFs are enabled are excluded from the count — the pod logs `Skipping SR-IOV physical functions` with the affected PCI addresses. |
 | Pod logs `output path validation failed` | Ensure `/etc/kubernetes/node-feature-discovery/features.d/` exists on the node before starting the DaemonSet. |
 | Labels do not appear on the node | Verify that NFD is running with the local source enabled and that the feature directory is mounted read-only into the `nfd-worker` pod. |

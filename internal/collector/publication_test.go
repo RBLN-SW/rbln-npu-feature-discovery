@@ -289,6 +289,60 @@ func TestCollectOnceReplacesStaleLabels(t *testing.T) {
 	expectLabels(t, f.c, map[string]string{"rebellions.ai/npu.present": "false"})
 }
 
+func TestEmptyDriverVersionPreservesHardwareLabelsAndRecovers(t *testing.T) {
+	for _, blank := range []string{"", " \t\n"} {
+		t.Run(fmt.Sprintf("blank=%q", blank), func(t *testing.T) {
+			f := newHardwareFixture(t)
+			f.device(t, "0000:01:00.0", "2130")
+			f.write(t, "sys/class/rebellions/rbln0/kernel_version", "1.2.3-old")
+			if err := f.c.CollectOnce(); err != nil {
+				t.Fatal(err)
+			}
+			f.now = f.now.Add(time.Minute)
+			f.write(t, "sys/class/rebellions/rbln0/kernel_version", blank)
+			if err := f.c.CollectOnce(); err != nil {
+				t.Fatalf("blank driver version must not prevent hardware label publication: %v", err)
+			}
+			expectLabels(t, f.c, map[string]string{
+				"rebellions.ai/npu.present": "true", "rebellions.ai/npu.count": "1", "rebellions.ai/npu.product": "RBLN-CR13",
+			})
+			_, expiry := publishedLabels(t, f.c)
+			if !expiry.Equal(f.now.Add(time.Hour)) {
+				t.Fatalf("hardware labels were not renewed: expiry=%s", expiry)
+			}
+			f.write(t, "sys/class/rebellions/rbln0/kernel_version", "3.4.0")
+			if err := f.c.CollectOnce(); err != nil {
+				t.Fatal(err)
+			}
+			expectLabels(t, f.c, map[string]string{
+				"rebellions.ai/npu.present": "true", "rebellions.ai/npu.count": "1", "rebellions.ai/npu.product": "RBLN-CR13",
+				"rebellions.ai/driver-version.full": "3.4.0", "rebellions.ai/driver-version.major": "3",
+				"rebellions.ai/driver-version.minor": "4", "rebellions.ai/driver-version.patch": "0",
+			})
+		})
+	}
+}
+
+func TestEmptyRevisionRemovesPreviouslyPublishedRevision(t *testing.T) {
+	f := newHardwareFixture(t)
+	f.device(t, "0000:01:00.0", "2130")
+	f.write(t, "sys/class/rebellions/rbln0/kernel_version", "1.2.3-old")
+	if err := f.c.CollectOnce(); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"1.2.3-", "1.2.3+", "1.2.3~"} {
+		f.write(t, "sys/class/rebellions/rbln0/kernel_version", version)
+		if err := f.c.CollectOnce(); err != nil {
+			t.Fatal(err)
+		}
+		expectLabels(t, f.c, map[string]string{
+			"rebellions.ai/npu.present": "true", "rebellions.ai/npu.count": "1", "rebellions.ai/npu.product": "RBLN-CR13",
+			"rebellions.ai/driver-version.full": "1.2.3", "rebellions.ai/driver-version.major": "1",
+			"rebellions.ai/driver-version.minor": "2", "rebellions.ai/driver-version.patch": "3",
+		})
+	}
+}
+
 func TestExpiryRefreshAndNoTimestamp(t *testing.T) {
 	f := newHardwareFixture(t)
 	if err := f.c.CollectOnce(); err != nil {

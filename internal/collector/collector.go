@@ -270,7 +270,9 @@ func parseDriverVersion(raw string) (semver string, revision *string, major stri
 	if idx := strings.IndexAny(trimmed, "-+~"); idx != -1 {
 		semver = trimmed[:idx]
 		rev := trimmed[idx+1:]
-		revision = &rev
+		if rev != "" {
+			revision = &rev
+		}
 	}
 
 	parts := strings.Split(semver, ".")

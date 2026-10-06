@@ -101,8 +101,9 @@ func (r *Reader) ReadCardName() (string, bool, error) {
 	return "", false, nil
 }
 
-// ReadDriverVersion reads rbln0's kernel_version attribute. A missing attribute
-// returns found=false. Other read errors are returned to the caller.
+// ReadDriverVersion reads rbln0's kernel_version attribute. An absent or blank
+// value is unavailable driver metadata, not a failure to discover the NPUs.
+// Other read errors are returned so a failed read cannot publish a partial result.
 func (r *Reader) ReadDriverVersion() (string, bool, error) {
 	sysfsDevice := filepath.Join(r.root, rebellionsSysfs, "rbln0")
 	kernelVersionFile := filepath.Join(sysfsDevice, kernelVersionKey)
@@ -119,5 +120,6 @@ func (r *Reader) ReadDriverVersion() (string, bool, error) {
 		return "", false, err
 	}
 
-	return strings.TrimSpace(string(versionBytes)), true, nil
+	version := strings.TrimSpace(string(versionBytes))
+	return version, version != "", nil
 }
