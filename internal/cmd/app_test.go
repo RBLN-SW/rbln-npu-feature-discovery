@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -18,6 +19,7 @@ import (
 // shutdown and must not surface as an error-level "Command execution
 // failed" log + exit 1 in main.
 func TestStartReturnsNilOnContextCancel(t *testing.T) {
+	useCollector(t, collectorFunc(func() error { return nil }))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -28,6 +30,64 @@ func TestStartReturnsNilOnContextCancel(t *testing.T) {
 
 	if err := Start(ctx, cfg); err != nil {
 		t.Fatalf("Start() = %v, want nil on graceful shutdown", err)
+	}
+}
+
+type collectorFunc func() error
+
+func (f collectorFunc) CollectOnce() error { return f() }
+
+// This helper replaces a package-global factory; callers must not run in parallel.
+func useCollector(t *testing.T, c onceCollector) {
+	t.Helper()
+	previous := newCollector
+	newCollector = func(string, bool) onceCollector { return c }
+	t.Cleanup(func() { newCollector = previous })
+}
+
+func TestStartOneshot(t *testing.T) {
+	collectionErr := errors.New("collection failed")
+	for _, wantErr := range []error{nil, collectionErr} {
+		name := "success"
+		if wantErr != nil {
+			name = "failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			useCollector(t, collectorFunc(func() error {
+				calls++
+				return wantErr
+			}))
+			err := Start(context.Background(), Config{Oneshot: true})
+			if !errors.Is(err, wantErr) || calls != 1 {
+				t.Fatalf("oneshot error=%v calls=%d, want %v and exactly one collection", err, calls, wantErr)
+			}
+		})
+	}
+}
+
+func TestCommandPassesOutputOptionsToCollector(t *testing.T) {
+	// Clear configuration inherited from the developer's shell.
+	for _, key := range []string{"OUTPUT_FILE", "SLEEP_INTERVAL", "ONESHOT", "NO_TIMESTAMP"} {
+		t.Setenv("RBLN_NPU_FEATURE_DISCOVERY_"+key, "")
+	}
+	output := filepath.Join(t.TempDir(), "custom-features")
+	previous := newCollector
+	var gotOutput string
+	var gotNoTimestamp bool
+	calls := 0
+	newCollector = func(path string, noTimestamp bool) onceCollector {
+		gotOutput, gotNoTimestamp = path, noTimestamp
+		return collectorFunc(func() error { calls++; return nil })
+	}
+	t.Cleanup(func() { newCollector = previous })
+	app := NewApp()
+	app.SetArgs([]string{"--oneshot", "--no-timestamp", "--output-file", output})
+	if err := app.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if gotOutput != output || !gotNoTimestamp || calls != 1 {
+		t.Fatalf("collector received path=%q noTimestamp=%v calls=%d", gotOutput, gotNoTimestamp, calls)
 	}
 }
 
@@ -73,9 +133,7 @@ func TestStartLogsRecoveryAfterFailedCycles(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	prevNew := newCollector
-	newCollector = func(string, bool) onceCollector { return &flakyCollector{failures: 2} }
-	t.Cleanup(func() { newCollector = prevNew })
+	useCollector(t, &flakyCollector{failures: 2})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -113,6 +171,12 @@ func TestStartLogsSignalNameOnSIGTERM(t *testing.T) {
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
+	collected := make(chan struct{})
+	var collectedOnce sync.Once
+	useCollector(t, collectorFunc(func() error {
+		collectedOnce.Do(func() { close(collected) })
+		return nil
+	}))
 
 	cfg := Config{
 		OutputFile:    filepath.Join(t.TempDir(), "labels"),
@@ -122,23 +186,14 @@ func TestStartLogsSignalNameOnSIGTERM(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- Start(context.Background(), cfg) }()
 
-	// Start registers the signal handler before its first collection, so once
-	// the collection outcome is logged the SIGTERM is guaranteed to be caught
-	// instead of killing the test process.
-	collected := func() bool {
-		out := buf.String()
-		return strings.Contains(out, "Feature labels published") ||
-			strings.Contains(out, "Initial collection failed")
-	}
-	deadline := time.After(10 * time.Second)
-	for !collected() {
-		select {
-		case err := <-done:
-			t.Fatalf("Start returned before signal: %v, logs: %s", err, buf.String())
-		case <-deadline:
-			t.Fatalf("initial collection never logged: %s", buf.String())
-		case <-time.After(10 * time.Millisecond):
-		}
+	// Start registers the signal handler before the first collection. The
+	// channel lets this test exercise signals without reading host sysfs.
+	select {
+	case <-collected:
+	case err := <-done:
+		t.Fatalf("Start returned before signal: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("initial collection never ran")
 	}
 
 	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {

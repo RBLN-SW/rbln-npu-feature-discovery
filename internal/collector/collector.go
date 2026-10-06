@@ -85,18 +85,31 @@ func (f Features) logAttrs() []any {
 	return attrs
 }
 
+type featureSource interface {
+	DiscoverDevices() ([]sysfs.Device, []string, error)
+	ReadCardName() (string, bool, error)
+	ReadDriverVersion() (string, bool, error)
+}
+
+// FeaturesCollector maintains publication state for one polling loop. Use
+// NewFeaturesCollector: the zero value has no source or clock. A single instance
+// is not safe for concurrent collection.
 type FeaturesCollector struct {
 	outputFile     string
 	noTimestamp    bool
 	pciIDs         *pciids.PCIIDsLookup
 	lastPublished  string
 	lastSkippedPFs string
+	source         featureSource
+	now            func() time.Time
 }
 
 func NewFeaturesCollector(outputFile string, noTimestamp bool) *FeaturesCollector {
 	c := &FeaturesCollector{
 		outputFile:  outputFile,
 		noTimestamp: noTimestamp,
+		source:      sysfs.NewReader("/"),
+		now:         time.Now,
 	}
 	path, err := pciids.FindPCIIDsPath()
 	if err == nil {
@@ -124,9 +137,6 @@ func (c *FeaturesCollector) CollectOnce() error {
 	return nil
 }
 
-// discoverDevices is a test seam over the sysfs device scan.
-var discoverDevices = sysfs.DiscoverDevices
-
 // logSkippedPFs leaves log evidence for why npu.count excludes SR-IOV PFs —
 // the only way to see the exclusion from kubectl logs. Change-only, like the
 // label snapshot, so an SR-IOV steady state stays quiet.
@@ -142,7 +152,7 @@ func (c *FeaturesCollector) logSkippedPFs(addrs []string) {
 }
 
 func (c *FeaturesCollector) collectFromSysfs(features *Features) error {
-	devices, skippedPFs, err := discoverDevices()
+	devices, skippedPFs, err := c.source.DiscoverDevices()
 	if err != nil {
 		return err
 	}
@@ -159,14 +169,11 @@ func (c *FeaturesCollector) collectFromSysfs(features *Features) error {
 	features.NPUCount = ptr(len(devices))
 	applyProduct(features, c.resolveProduct(devices[0].DeviceID))
 
-	return collectDriverVersion(features)
+	return c.collectDriverVersion(features)
 }
 
-// readDriverVersion is a test seam over the fixed sysfs path.
-var readDriverVersion = sysfs.ReadDriverVersion
-
-func collectDriverVersion(features *Features) error {
-	driverVersion, found, err := readDriverVersion()
+func (c *FeaturesCollector) collectDriverVersion(features *Features) error {
+	driverVersion, found, err := c.source.ReadDriverVersion()
 	if err != nil {
 		return err
 	}
@@ -195,7 +202,7 @@ func collectDriverVersion(features *Features) error {
 // driver card_name first (authoritative, no per-SKU maintenance), bundled
 // pci.ids second (covers old drivers without the card_name attribute).
 func (c *FeaturesCollector) resolveProduct(deviceID string) string {
-	name, found, err := sysfs.ReadCardName()
+	name, found, err := c.source.ReadCardName()
 	if err != nil {
 		slog.Warn("Failed to read card_name", "err", err, "effect", "falling back to pci.ids for product name")
 	}
@@ -224,7 +231,7 @@ func (c *FeaturesCollector) save(features Features) error {
 	text := plain
 
 	if !c.noTimestamp {
-		expiry := time.Now().Add(time.Hour).Format(time.RFC3339)
+		expiry := c.now().Add(time.Hour).Format(time.RFC3339)
 		text = fmt.Sprintf("# +expiry-time=%s\n%s", expiry, plain)
 	}
 

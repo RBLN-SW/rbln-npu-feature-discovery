@@ -38,10 +38,11 @@ Once both NFD and RBLN NPU Feature Discovery are running, inspect a node with `k
 - `rebellions.ai/npu.present=true`
 - `rebellions.ai/npu.count=2`
 - `rebellions.ai/npu.product=RBLN-CA12`
-- `rebellions.ai/driver-version.full=1.2.92-6d00b56`
+- `rebellions.ai/driver-version.full=1.2.92`
 - `rebellions.ai/driver-version.major=1`
 - `rebellions.ai/driver-version.minor=2`
 - `rebellions.ai/driver-version.patch=92`
+- `rebellions.ai/driver-version.revision=6d00b56`
 
 ## Generated labels
 
@@ -52,10 +53,11 @@ Label values are stored as strings in Kubernetes. The “Value type” column de
 | `rebellions.ai/npu.present` | Boolean | Indicates if any RBLN NPU was detected on the node. | `true`, `false` |
 | `rebellions.ai/npu.count` | Integer | Number of NPUs after filtering out PFs that own SR-IOV VFs. | `1`, `2` |
 | `rebellions.ai/npu.product` | String | Product name (e.g., `RBLN-CA22`, `RBLN-CR22`). | `RBLN-CA22`, `RBLN-CR22` |
-| `rebellions.ai/driver-version.full` | String | Full semantic version reported by the driver, including optional revision suffix. | `1.2.92-6d00b56` |
+| `rebellions.ai/driver-version.full` | String | Driver version before the optional `-`, `+`, or `~` revision separator. | `1.2.92` |
 | `rebellions.ai/driver-version.major` | Integer | Major component of the driver version. | `1` |
 | `rebellions.ai/driver-version.minor` | Integer | Minor component of the driver version. | `2` |
 | `rebellions.ai/driver-version.patch` | Integer | Patch component of the driver version. | `92` |
+| `rebellions.ai/driver-version.revision` | String | Revision suffix, omitted when the driver reports no revision. | `6d00b56`, `rc3` |
 
 ## Configuration
 
@@ -72,6 +74,32 @@ RBLN NPU Feature Discovery accepts both flags and environment variables. Default
 | — | `RBLN_NPU_FEATURE_DISCOVERY_LOG_FORMAT` | `json` | Log output format: `json`, `text`. |
 
 Example usage: `rbln-npu-feature-discovery --sleep-interval 120`.
+
+## Tests
+
+Run the tests locally without NPU hardware, a driver, or Kubernetes:
+
+```sh
+make test
+make test GO_TEST_FLAGS='-race -cover'
+```
+
+The PR and main-branch workflows run the suite with the race detector before
+image scanning or publishing, respectively. The suite includes:
+
+- Temporary sysfs trees for PCI discovery, PF/VF counting, symlinks, and missing
+  or unreadable attributes.
+- The real `CollectOnce()` path through the sysfs reader and feature-file writer,
+  comparing the entire label map and checking product fallback behavior.
+- Repeated collection with changed or missing hardware/driver information to
+  ensure obsolete keys disappear from the next file.
+- Expiry renewal with a controlled clock, `--no-timestamp`, publication errors
+  and recovery, and readers observing only complete files during replacement.
+- Configuration precedence, interval limits, one-shot errors, continuous
+  collection recovery, and graceful shutdown.
+
+These tests do not verify NFD consuming the file or updating Kubernetes Node
+labels; that remains an integration/E2E responsibility.
 
 ## Troubleshooting
 

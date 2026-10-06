@@ -3,7 +3,6 @@ package collector
 import (
 	"bytes"
 	"log/slog"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -24,10 +23,7 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 // an info snapshot on every change, silence while the state is stable.
 func TestSaveLogsSnapshotOnChangeOnly(t *testing.T) {
 	buf := captureLogs(t)
-	c := &FeaturesCollector{
-		outputFile:  filepath.Join(t.TempDir(), "labels"),
-		noTimestamp: true,
-	}
+	c := newHardwareFixture(t).c
 
 	f := newFeatures()
 	f.NPUPresent = true
@@ -84,22 +80,32 @@ func TestLabelFieldsCoverAllFeatureFields(t *testing.T) {
 	}
 }
 
-func stubDevices(t *testing.T, devices []sysfs.Device, skippedPFs []string) {
-	t.Helper()
-	prev := discoverDevices
-	discoverDevices = func() ([]sysfs.Device, []string, error) { return devices, skippedPFs, nil }
-	t.Cleanup(func() { discoverDevices = prev })
+type stubSource struct {
+	devices            []sysfs.Device
+	skippedPFs         []string
+	driverVersion      string
+	driverVersionFound bool
+}
+
+func (s stubSource) DiscoverDevices() ([]sysfs.Device, []string, error) {
+	return s.devices, s.skippedPFs, nil
+}
+
+func (s stubSource) ReadCardName() (string, bool, error) {
+	return "", false, nil
+}
+
+func (s stubSource) ReadDriverVersion() (string, bool, error) {
+	return s.driverVersion, s.driverVersionFound, nil
 }
 
 // A node without NPUs publishes npu.present=false as a steady state; it must
 // not warn about the (expectedly absent) driver version every cycle.
 func TestCollectFromSysfsSkipsDriverVersionWithoutDevices(t *testing.T) {
 	buf := captureLogs(t)
-	stubDevices(t, nil, nil)
-	stubDriverVersion(t, "", false, nil) // would warn if consulted
-
 	f := newFeatures()
-	c := &FeaturesCollector{}
+	c := newHardwareFixture(t).c
+	c.source = stubSource{}
 	if err := c.collectFromSysfs(&f); err != nil {
 		t.Fatalf("collectFromSysfs: %v", err)
 	}
@@ -115,8 +121,8 @@ func TestCollectFromSysfsSkipsDriverVersionWithoutDevices(t *testing.T) {
 // but a stable exclusion must not repeat every cycle.
 func TestCollectFromSysfsLogsSkippedPFsOnChangeOnly(t *testing.T) {
 	buf := captureLogs(t)
-	c := &FeaturesCollector{}
-	stubDevices(t, nil, []string{"0000:17:00.0"})
+	c := newHardwareFixture(t).c
+	c.source = stubSource{skippedPFs: []string{"0000:17:00.0"}}
 
 	f := newFeatures()
 	if err := c.collectFromSysfs(&f); err != nil {
@@ -140,21 +146,15 @@ func TestCollectFromSysfsLogsSkippedPFsOnChangeOnly(t *testing.T) {
 	}
 }
 
-func stubDriverVersion(t *testing.T, version string, found bool, err error) {
-	t.Helper()
-	prev := readDriverVersion
-	readDriverVersion = func() (string, bool, error) { return version, found, err }
-	t.Cleanup(func() { readDriverVersion = prev })
-}
-
 // A missing kernel_version attribute silently drops all five driver-version
 // labels; that degradation must leave log evidence.
 func TestCollectDriverVersionWarnsWhenAttributeMissing(t *testing.T) {
 	buf := captureLogs(t)
-	stubDriverVersion(t, "", false, nil)
+	c := newHardwareFixture(t).c
+	c.source = stubSource{}
 
 	f := newFeatures()
-	if err := collectDriverVersion(&f); err != nil {
+	if err := c.collectDriverVersion(&f); err != nil {
 		t.Fatalf("collectDriverVersion: %v", err)
 	}
 	if f.DriverVersionFull != nil {
@@ -170,10 +170,11 @@ func TestCollectDriverVersionWarnsWhenAttributeMissing(t *testing.T) {
 }
 
 func TestCollectDriverVersionSetsLabels(t *testing.T) {
-	stubDriverVersion(t, "1.2.3-rebel1", true, nil)
+	c := newHardwareFixture(t).c
+	c.source = stubSource{driverVersion: "1.2.3-rebel1", driverVersionFound: true}
 
 	f := newFeatures()
-	if err := collectDriverVersion(&f); err != nil {
+	if err := c.collectDriverVersion(&f); err != nil {
 		t.Fatalf("collectDriverVersion: %v", err)
 	}
 	if f.DriverVersionFull == nil || *f.DriverVersionFull != "1.2.3" {
