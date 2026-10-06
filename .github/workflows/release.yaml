@@ -25,7 +25,7 @@ jobs:
       release_name: RBLN NPU Feature Discovery
     secrets: inherit
 
-  # Hand the rc to the obedients install scenario (.buildkite/pipeline.yml in
+  # Hand the rc to the obedients feature discovery suite (.buildkite/pipeline.yml in
   # release mode) once the kit has published it, then wait for the verdict and
   # record it as the `rc-validation` commit status the kit reads before GA
   # (enforced once CLOUD_COMPONENT_RC_VALIDATION_ENFORCE is "true"). obedients
@@ -89,7 +89,7 @@ jobs:
               -f description="$2" -f target_url="$BUILD_URL" >/dev/null
             echo "rc-validation=$1: $2"
           }
-          post pending "obedients install scenario running on $GITHUB_REF_NAME"
+          post pending "obedients feature discovery suite running on $GITHUB_REF_NAME"
           # Only a status newer than the trigger counts: a re-run must not read
           # the previous build's verdict off the same commit.
           for _ in $(seq 1 170); do
@@ -97,10 +97,10 @@ jobs:
             state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/status" \
               --jq ".statuses[] | select(.context == \"[NFD] PR CI\" and .updated_at > \"$TRIGGERED_AT\") | .state")
             case "$state" in
-              success) post success "obedients install scenario passed on $GITHUB_REF_NAME"; exit 0 ;;
-              failure|error) post failure "obedients install scenario $state on $GITHUB_REF_NAME"; exit 1 ;;
+              success) post success "obedients feature discovery suite passed on $GITHUB_REF_NAME"; exit 0 ;;
+              failure|error) post failure "obedients feature discovery suite $state on $GITHUB_REF_NAME"; exit 1 ;;
             esac
             sleep 60
           done
-          post error "obedients install scenario did not finish within 170 minutes"
+          post error "obedients feature discovery suite did not finish within 170 minutes"
           exit 1
