@@ -104,6 +104,45 @@ image scanning or publishing, respectively. The suite includes:
 These tests do not verify NFD consuming the file or updating Kubernetes Node
 labels; that remains an integration/E2E responsibility.
 
+### PR and release E2E
+
+The Buildkite pipeline builds the PR image and runs Sentinel's
+`npu-feature-discovery-pr` suite against an operator deployment. RC validation
+uses the same suite with the already published RC image. On every targeted NPU
+node, the suite checks:
+
+- A valid, unexpired feature file whose expiry advances on a later collection.
+- Exact label values against independently observed PCI/driver information.
+- Upstream NFD propagation of the full FD-owned label subset to the Node.
+- FD Pod replacement followed by renewed publication and matching Node labels.
+
+Every required behavior must pass. Filtering out or skipping one cannot produce
+a successful PR check. `npu.family` is owned by the operator and is not part of
+the FD output comparison. Edge cases requiring synthetic sysfs remain in the
+unit suite above.
+
+The operator chart is pinned by `OPERATOR_REF`; operator and validator image
+tags default to that commit's first eight characters. Set
+`SENTINEL_OPERATOR_VERSION` / `SENTINEL_VALIDATOR_VERSION` when using a baseline
+whose images have different tags. The cluster's driver versions and NPU families
+remain explicit pipeline inputs. For older drivers without `card_name`, expected
+products come from `deps/rebellions-pci.ids` at the independently pinned
+`FD_PCI_IDS_REF`, rather than the PR image. New product mappings require a
+reviewed reference update as well as the FD change.
+
+Sentinel's FD suite must be merged before enabling this pipeline with its default
+`SENTINEL_REF=dev`. For coordinated validation, set `SENTINEL_REF` to the Sentinel
+branch or commit containing the suite; branch, tag and full commit references
+are supported for both repositories. The pipeline records the resolved source
+commits, actual FD Pod image IDs, raw feature files and hardware observations.
+Existing `run.json`, HTML and JUnit reports are retained, with an additional
+`report.yaml` containing behavior outcomes and required coverage.
+
+The GitHub status contexts `[NFD] PR CI` and `[NFD] Install Scenario`, and the
+Buildkite step key `install`, are retained for branch protection and release
+workflow compatibility. The step now runs the FD suite. Other component,
+Nightly and Matrix pipeline definitions are unchanged.
+
 ## Troubleshooting
 
 | Symptom | Suggested action |
