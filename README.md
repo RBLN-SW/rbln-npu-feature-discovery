@@ -106,8 +106,10 @@ labels; that remains an integration/E2E responsibility.
 
 ### PR and release E2E
 
-The Buildkite pipeline builds the PR image and runs Sentinel's
-`components/feature_discovery` execution group against an operator deployment. RC validation
+Obedients loads the [RNPM PR bootstrap](.buildkite/pipeline.rnpm.pr.yml).
+The registered RNPM `pr` bundle builds the PR image and runs Sentinel's
+`components/feature_discovery` execution group against an operator deployment.
+This repository no longer keeps a separate legacy Buildkite PR pipeline. RC validation
 uses the same suite with the already published RC image. On every targeted NPU
 node, the suite checks:
 
