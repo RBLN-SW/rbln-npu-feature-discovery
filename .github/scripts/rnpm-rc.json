@@ -1,0 +1,13 @@
+{
+  "bundle_id": "321ff96c-ebcd-45ce-b1b3-a26f4a59914c",
+  "ob_pipeline": "pr-label-npu-feature-discovery",
+  "images": [
+    {
+      "name": "rbln-npu-feature-discovery",
+      "prefix": "NPU_FEATURE_DISCOVERY"
+    }
+  ],
+  "timeout_seconds": 10200,
+  "repository": "RBLN-SW/rbln-npu-feature-discovery",
+  "execution_repository": "RBLN-SW/rbln-npu-feature-discovery"
+}
