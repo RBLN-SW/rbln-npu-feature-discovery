@@ -107,7 +107,7 @@ labels; that remains an integration/E2E responsibility.
 ### PR and release E2E
 
 The Buildkite pipeline builds the PR image and runs Sentinel's
-`npu-feature-discovery-pr` suite against an operator deployment. RC validation
+`components/feature_discovery` execution group against an operator deployment. RC validation
 uses the same suite with the already published RC image. On every targeted NPU
 node, the suite checks:
 
@@ -121,27 +121,13 @@ a successful PR check. `npu.family` is owned by the operator and is not part of
 the FD output comparison. Edge cases requiring synthetic sysfs remain in the
 unit suite above.
 
-The operator chart is pinned by `OPERATOR_REF`; operator and validator image
-tags default to that commit's first eight characters. Set
-`SENTINEL_OPERATOR_VERSION` / `SENTINEL_VALIDATOR_VERSION` when using a baseline
-whose images have different tags. The cluster's driver versions and NPU families
-remain explicit pipeline inputs. For older drivers without `card_name`, expected
-products come from `deps/rebellions-pci.ids` at the independently pinned
-`FD_PCI_IDS_REF`, rather than the PR image. New product mappings require a
-reviewed reference update as well as the FD change.
+The chart, Operator/Validator images, driver versions and target clusters use
+RNPM's registered baseline. RC validation sends the published FD image with
+image building disabled. Optional Operator and Sentinel ref overrides are
+applied as run settings, and the saved PR pipeline is unchanged.
 
-Sentinel's FD suite must be merged before enabling this pipeline with its default
-`SENTINEL_REF=dev`. For coordinated validation, set `SENTINEL_REF` to the Sentinel
-branch or commit containing the suite; branch, tag and full commit references
-are supported for both repositories. The pipeline records the resolved source
-commits, actual FD Pod image IDs, raw feature files and hardware observations.
-Existing `run.json`, HTML and JUnit reports are retained, with an additional
-`report.yaml` containing behavior outcomes and required coverage.
-
-The GitHub status contexts `[NFD] PR CI` and `[NFD] Install Scenario`, and the
-Buildkite step key `install`, are retained for branch protection and release
-workflow compatibility. The step now runs the FD suite. Other component,
-Nightly and Matrix pipeline definitions are unchanged.
+GitHub Actions triggers RNPM and waits for RNPM's normal OB verdict and delivery
+of `rc-validation` to the RC commit. See [RC validation setup and image inputs](docs/rc-validation.md).
 
 ## Troubleshooting
 
