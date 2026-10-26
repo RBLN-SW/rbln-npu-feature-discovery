@@ -1,4 +1,4 @@
-ARG GOLANG_VERSION=1.26.7
+ARG GOLANG_VERSION=1.26.10
 FROM --platform=$BUILDPLATFORM golang:${GOLANG_VERSION}-alpine AS builder
 RUN apk add --no-cache build-base git
 
@@ -20,7 +20,7 @@ ARG TARGETOS TARGETARCH
 ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -buildvcs=false \
     -ldflags "-X github.com/rebellions-sw/rbln-npu-feature-discovery/internal/cmd.version=${VERSION}" \
     -o /usr/local/bin/rbln-npu-feature-discovery ./cmd/rbln-npu-feature-discovery
 
