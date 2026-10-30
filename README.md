@@ -141,3 +141,16 @@ of `rc-validation` to the RC commit. See [RC validation setup and image inputs](
 | Pod logs `output path validation failed` | Ensure `/etc/kubernetes/node-feature-discovery/features.d/` exists on the node before starting the DaemonSet. |
 | Labels do not appear on the node | Verify that NFD is running with the local source enabled and that the feature directory is mounted read-only into the `nfd-worker` pod. |
 | DaemonSet remains Pending | Confirm that NFD has applied `feature.node.kubernetes.io/pci-1200_1eff.present` or update the affinity to match your labeling scheme. |
+
+## License
+
+Copyright 2025-2026 Rebellions Inc.
+
+This project is licensed under the [Apache License 2.0](LICENSE). See
+[NOTICE](NOTICE) for attributions to upstream projects and
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) for the licenses of the Go modules
+compiled into the binaries.
+
+The RBLN NPU driver, rbln-smd, rbln-smi and the NPU runtime libraries are
+separate products distributed under the Rebellions Software User License
+Agreement.

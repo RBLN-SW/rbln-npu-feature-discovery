@@ -4,10 +4,10 @@ repos:
     hooks:
     - id: trailing-whitespace
       stages: [pre-commit]
-      exclude: '^vendor/'
+      exclude: '^(vendor/|THIRD_PARTY_NOTICES$)'
     - id: end-of-file-fixer
       stages: [pre-commit]
-      exclude: '^vendor/'
+      exclude: '^(vendor/|THIRD_PARTY_NOTICES$)'
     - id: check-added-large-files
       stages: [pre-commit]
       args: ['--maxkb=2048']
