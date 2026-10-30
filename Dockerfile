@@ -34,7 +34,7 @@ RUN microdnf install -y shadow-utils && \
     chown rbln:rbln /home/rbln && \
     microdnf clean all
 
-COPY LICENSE /licenses/LICENSE.txt
+COPY LICENSE NOTICE THIRD_PARTY_NOTICES /licenses/
 
 LABEL \
     name="rbln-npu-feature-discovery" \
@@ -45,7 +45,10 @@ LABEL \
     description="NPU Feature Discovery extends Kubernetes Node Feature Discovery to automatically detect Rebellions NPUs on a node and generate the corresponding Kubernetes labels." \
     maintainer="Rebellions sw_devops@rebellions.ai" \
     io.k8s.display-name="Rebellions NPU Feature Discovery" \
-    com.redhat.component="rbln-npu-feature-discovery"
+    com.redhat.component="rbln-npu-feature-discovery" \
+    org.opencontainers.image.licenses="Apache-2.0" \
+    org.opencontainers.image.source="https://github.com/RBLN-SW/rbln-npu-feature-discovery" \
+    org.opencontainers.image.vendor="Rebellions Inc."
 
 COPY --from=builder /usr/local/bin/rbln-npu-feature-discovery /usr/local/bin/rbln-npu-feature-discovery
 # Bundled Rebellions pci.ids block: product-name fallback for hosts whose
