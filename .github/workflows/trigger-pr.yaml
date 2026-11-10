@@ -56,6 +56,8 @@ jobs:
   image-scan:
     needs: [code-check, go-build, go-tests]
     uses: ./.github/workflows/image-scan.yaml
-    secrets: inherit
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
     with:
       fail-on-findings: true
