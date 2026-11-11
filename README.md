@@ -106,8 +106,8 @@ labels; that remains an integration/E2E responsibility.
 
 ### PR and release E2E
 
-Obedients loads the [RNPM PR bootstrap](.buildkite/pipeline.rnpm.pr.yml).
-The registered RNPM `pr` bundle builds the PR image and runs Sentinel's
+Obedients loads the [piper PR bootstrap](.buildkite/pipeline.piper.pr.yml).
+The registered piper `pr` bundle builds the PR image and runs Sentinel's
 `components/feature_discovery` execution group against an operator deployment.
 This repository no longer keeps a separate legacy Buildkite PR pipeline. RC validation
 uses the same suite with the already published RC image. On every targeted NPU
@@ -124,11 +124,11 @@ the FD output comparison. Edge cases requiring synthetic sysfs remain in the
 unit suite above.
 
 The chart, Operator/Validator images, driver versions and target clusters use
-RNPM's registered baseline. RC validation sends the published FD image with
+piper's registered baseline. RC validation sends the published FD image with
 image building disabled. Optional Operator and Sentinel ref overrides are
 applied as run settings, and the saved PR pipeline is unchanged.
 
-GitHub Actions triggers RNPM and waits for RNPM's normal OB verdict and delivery
+GitHub Actions triggers piper and waits for piper's normal OB verdict and delivery
 of `rc-validation` to the RC commit. See [RC validation setup and image inputs](docs/rc-validation.md).
 
 ## Troubleshooting
