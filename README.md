@@ -1,143 +1,50 @@
 # RBLN NPU Feature Discovery
 
-RBLN NPU Feature Discovery automatically publishes Kubernetes node labels describing the Rebellions NPUs installed on a node. It extends the Node Feature Discovery (NFD) workflow by writing a local feature file that NFD consumes to stamp labels onto the node object.
+**Make NPU hardware information available as Kubernetes node labels.**
 
-## Overview
+[Get started](#get-started) · [Guides](#guides) · [Documentation](https://docs.rbln.ai/latest/software/system_management/kubernetes/npu_feature_discovery.html) · [Releases](https://github.com/RBLN-SW/rbln-npu-feature-discovery/releases)
 
-The binary inspects sysfs: devices are discovered under `/sys/bus/pci/devices` (vendor `0x1eff`), and the product name is resolved from the driver's `card_name` attribute under `/sys/class/rebellions` first, falling back to the bundled `pci.ids` Rebellions vendor block for drivers that predate `card_name`. If neither source resolves the product, only `npu.product` is omitted — the remaining labels are still written. All collected facts are stored in `/etc/kubernetes/node-feature-discovery/features.d/rbln-features`, which NFD reads through the `local` feature source.
+NPU Feature Discovery collects device information and writes a feature file.
+Kubernetes Node Feature Discovery (NFD) reads it through its `local` source and
+applies labels that help you find NPU nodes and place workloads on suitable hardware.
 
-| Component | Purpose |
-|-----------|---------|
-| RBLN driver | Exposes kernel version, product name, and PCI details for Rebellions devices. |
-| RBLN NPU Feature Discovery | Collects hardware information periodically and writes local feature entries. |
-| Node Feature Discovery | Converts the local feature file into Kubernetes node labels. |
+## Get started
 
-## Prerequisites
+1. [Install the NPU Operator](https://docs.rbln.ai/latest/software/system_management/kubernetes/install_npu_operator.html) with NFD and NPU Feature Discovery.
+2. [Check the generated labels](docs/guides/check-node-labels.md).
 
-- Kubernetes 1.19+ cluster
-- Nodes equipped with Rebellions NPUs (ATOM or REBEL families) and RBLN driver 1.2.79 or newer.
-- Node Feature Discovery v0.17.x deployed on target nodes with the [local feature source](https://kubernetes-sigs.github.io/node-feature-discovery/v0.17/usage/customization-guide.html#local-feature-source) enabled and `/etc/kubernetes/node-feature-discovery/features.d/` mounted.
+For a separate deployment with an existing NFD installation, follow the
+[standalone guide](docs/guides/deploy-standalone.md).
 
-## Deployment
+## Guides
 
-### 1. Prepare NPU nodes
+| I want to… | Guide |
+| --- | --- |
+| Find NPU nodes and inspect their labels | [Check node labels](docs/guides/check-node-labels.md) |
+| Run a workload on a specific NPU family | [Schedule by family](https://docs.rbln.ai/latest/software/system_management/kubernetes/tutorials/find_and_schedule.html) |
+| Understand the available labels | [Read the label reference](docs/reference/labels.md) |
+| Use an existing NFD deployment | [Deploy the component separately](docs/guides/deploy-standalone.md) |
+| Change collection or logging settings | [Configuration reference](docs/reference/configuration.md) |
 
-Install the RBLN driver by following the [official installation guide](https://docs.rbln.ai/getting_started/installation_guide.html#step-1-rbln-driver) and confirm that the Rebellions PCI devices appear inside `/sys/bus/pci/devices`. The feature discovery pod requires read access to `/sys` and to the NFD feature directory on the host.
+## Labels at a glance
 
-### 2. Install NPU Feature Discovery
+| Label | Purpose |
+| --- | --- |
+| `rebellions.ai/npu.present` | Find nodes with NPUs |
+| `rebellions.ai/npu.count` | Inspect the discovered device count |
+| `rebellions.ai/npu.product` | Identify the NPU product |
+| `rebellions.ai/driver-version.full` | Inspect the driver version |
 
-**DaemonSet (recommended).** Apply `https://raw.githubusercontent.com/rebellions-sw/rbln-npu-feature-discovery/main/deployments/static/npu-feature-discovery-daemonset.yaml`. The manifest:
-- Runs in the `node-feature-discovery` namespace with `privileged: true` to read sysfs.
-- Mounts `/etc/kubernetes/node-feature-discovery/features.d` and `/sys` from the host.
-- Includes node affinity that matches the default PCI labels emitted by NFD for Rebellions devices (`feature.node.kubernetes.io/pci-1200_1eff.present` or `feature.node.kubernetes.io/pci-1eff.present`).
-Customize namespace, tolerations, image registry, or resource requests as needed for your cluster.
+The `rebellions.ai/npu.family` label is provided by the operator's NFD rule.
+It is separate from the labels produced by this component.
 
-### 3. Verify node labels
+## Development
 
-Once both NFD and RBLN NPU Feature Discovery are running, inspect a node with `kubectl get node <npu-node> -o yaml`. The `metadata.labels` section should now include keys such as:
-- `rebellions.ai/npu.present=true`
-- `rebellions.ai/npu.count=2`
-- `rebellions.ai/npu.product=RBLN-CA12`
-- `rebellions.ai/driver-version.full=1.2.92`
-- `rebellions.ai/driver-version.major=1`
-- `rebellions.ai/driver-version.minor=2`
-- `rebellions.ai/driver-version.patch=92`
-- `rebellions.ai/driver-version.revision=6d00b56`
+See [Contributing](CONTRIBUTING.md) to build and test NPU Feature Discovery.
 
-## Generated labels
+## Support
 
-Label values are stored as strings in Kubernetes. The “Value type” column describes the logical type represented in the string.
+Report bugs and feature requests in [GitHub issues](https://github.com/RBLN-SW/rbln-npu-feature-discovery/issues).
+Include the NFD version, expected labels, and component logs.
 
-| Label | Value type | Description | Examples |
-|-------|------------|-------------|----------|
-| `rebellions.ai/npu.present` | Boolean | Indicates if any RBLN NPU was detected on the node. | `true`, `false` |
-| `rebellions.ai/npu.count` | Integer | Number of NPUs after filtering out PFs that own SR-IOV VFs. | `1`, `2` |
-| `rebellions.ai/npu.product` | String | Product name (e.g., `RBLN-CA22`, `RBLN-CR22`). | `RBLN-CA22`, `RBLN-CR22` |
-| `rebellions.ai/driver-version.full` | String | Driver version before the optional `-`, `+`, or `~` revision separator. | `1.2.92` |
-| `rebellions.ai/driver-version.major` | Integer | Major component of the driver version. | `1` |
-| `rebellions.ai/driver-version.minor` | Integer | Minor component of the driver version. | `2` |
-| `rebellions.ai/driver-version.patch` | Integer | Patch component of the driver version. | `92` |
-| `rebellions.ai/driver-version.revision` | String | Non-empty revision suffix, omitted when absent or when the version ends in a separator. | `6d00b56`, `rc3` |
-
-If `kernel_version` is missing or blank, only the `driver-version.*` labels are
-omitted. Hardware labels are still published and their expiry is renewed.
-
-## Configuration
-
-RBLN NPU Feature Discovery accepts both flags and environment variables. Defaults reflect the static manifests under `deployments/static`.
-
-| Flag | Environment variable | Default | Description |
-|------|----------------------|---------|-------------|
-| `--output-file`, `-o` | `RBLN_NPU_FEATURE_DISCOVERY_OUTPUT_FILE` | `/etc/kubernetes/node-feature-discovery/features.d/rbln-features` | Destination file consumed by the NFD local source. |
-| `--sleep-interval` | `RBLN_NPU_FEATURE_DISCOVERY_SLEEP_INTERVAL` | `60` seconds (min 10s, max 3600s) | Time between collections when running continuously. |
-| `--oneshot` | `RBLN_NPU_FEATURE_DISCOVERY_ONESHOT` | `false` | Collect features once and exit. Used by the Job template. |
-| `--no-timestamp` | `RBLN_NPU_FEATURE_DISCOVERY_NO_TIMESTAMP` | `false` | Skip writing the hourly expiry comment required by NFD. |
-| `--rbln-daemon-url` (deprecated) | `RBLN_NPU_FEATURE_DISCOVERY_RBLN_DAEMON_URL` (ignored) | — | No-op kept for compatibility with manifests that still pass it (e.g. rbln-npu-operator); daemon collection was removed. |
-| — | `RBLN_NPU_FEATURE_DISCOVERY_LOG_LEVEL` | `info` | Log verbosity: `error`, `warning` (or `warn`), `info`, `debug`. |
-| — | `RBLN_NPU_FEATURE_DISCOVERY_LOG_FORMAT` | `json` | Log output format: `json`, `text`. |
-
-Example usage: `rbln-npu-feature-discovery --sleep-interval 120`.
-
-## Tests
-
-Run the tests locally without NPU hardware, a driver, or Kubernetes:
-
-```sh
-make test
-make test GO_TEST_FLAGS='-race -cover'
-```
-
-The PR and main-branch workflows run the suite with the race detector before
-image scanning or publishing, respectively. The suite includes:
-
-- Temporary sysfs trees for PCI discovery, PF/VF counting, symlinks, and missing
-  or unreadable attributes.
-- The real `CollectOnce()` path through the sysfs reader and feature-file writer,
-  comparing the entire label map and checking product fallback behavior.
-- Repeated collection with changed or missing hardware/driver information to
-  ensure obsolete keys disappear from the next file.
-- Expiry renewal with a controlled clock, `--no-timestamp`, publication errors
-  and recovery, and readers observing only complete files during replacement.
-- Configuration precedence, interval limits, one-shot errors, continuous
-  collection recovery, and graceful shutdown.
-
-These tests do not verify NFD consuming the file or updating Kubernetes Node
-labels; that remains an integration/E2E responsibility.
-
-### PR and release E2E
-
-Obedients loads the [piper PR bootstrap](.buildkite/pipeline.piper.pr.yml).
-The registered piper `pr` bundle builds the PR image and runs Sentinel's
-`components/feature_discovery` execution group against an operator deployment.
-This repository no longer keeps a separate legacy Buildkite PR pipeline. RC validation
-uses the same suite with the already published RC image. On every targeted NPU
-node, the suite checks:
-
-- A valid, unexpired feature file whose expiry advances on a later collection.
-- Exact label values against independently observed PCI/driver information.
-- Upstream NFD propagation of the full FD-owned label subset to the Node.
-- FD Pod replacement followed by renewed publication and matching Node labels.
-
-Every required behavior must pass. Filtering out or skipping one cannot produce
-a successful PR check. `npu.family` is owned by the operator and is not part of
-the FD output comparison. Edge cases requiring synthetic sysfs remain in the
-unit suite above.
-
-The chart, Operator/Validator images, driver versions and target clusters use
-piper's registered baseline. RC validation sends the published FD image with
-image building disabled. Optional Operator and Sentinel ref overrides are
-applied as run settings, and the saved PR pipeline is unchanged.
-
-GitHub Actions triggers piper and waits for piper's normal OB verdict and delivery
-of `rc-validation` to the RC commit. See [RC validation setup and image inputs](docs/rc-validation.md).
-
-## Troubleshooting
-
-| Symptom | Suggested action |
-|---------|------------------|
-| Pod logs `Could not resolve product name` | The driver predates the `card_name` sysfs attribute and the device id is missing from the bundled `deps/rebellions-pci.ids` — update the driver or add the device entry. |
-| Pod logs `Driver version not found in sysfs` | `/sys/class/rebellions/rbln0/kernel_version` is absent or blank, so the `driver-version.*` labels are omitted — verify the NPU driver is loaded on the node. |
-| `npu.count` is lower than the number of installed NPUs | PFs whose SR-IOV VFs are enabled are excluded from the count — the pod logs `Skipping SR-IOV physical functions` with the affected PCI addresses. |
-| Pod logs `output path validation failed` | Ensure `/etc/kubernetes/node-feature-discovery/features.d/` exists on the node before starting the DaemonSet. |
-| Labels do not appear on the node | Verify that NFD is running with the local source enabled and that the feature directory is mounted read-only into the `nfd-worker` pod. |
-| DaemonSet remains Pending | Confirm that NFD has applied `feature.node.kubernetes.io/pci-1200_1eff.present` or update the affinity to match your labeling scheme. |
+[License](LICENSE)
