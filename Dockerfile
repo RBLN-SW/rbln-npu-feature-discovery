@@ -4,11 +4,6 @@ RUN apk add --no-cache build-base git
 
 WORKDIR /src
 
-COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    go mod download
-
 COPY . .
 
 ENV CGO_ENABLED=0
@@ -20,7 +15,7 @@ ARG TARGETOS TARGETARCH
 ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -buildvcs=false \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -mod=vendor -buildvcs=false \
     -ldflags "-X github.com/rebellions-sw/rbln-npu-feature-discovery/internal/cmd.version=${VERSION}" \
     -o /usr/local/bin/rbln-npu-feature-discovery ./cmd/rbln-npu-feature-discovery
 
