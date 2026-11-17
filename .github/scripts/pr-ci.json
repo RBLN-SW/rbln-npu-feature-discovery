@@ -1,6 +1,0 @@
-{
-  "repository": "RBLN-SW/rbln-npu-feature-discovery",
-  "bundle_id": "321ff96c-ebcd-45ce-b1b3-a26f4a59914c",
-  "ob_pipeline": "pr-label-npu-feature-discovery",
-  "timeout_seconds": 10200
-}
