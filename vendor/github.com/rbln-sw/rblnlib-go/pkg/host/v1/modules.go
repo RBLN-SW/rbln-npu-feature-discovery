@@ -74,6 +74,12 @@ func (c *Client) LoadModule(ctx context.Context, name string) error {
 	if !moduleName.MatchString(name) {
 		return &system.Error{Kind: system.InvalidArgument, Target: name}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if c.loadModuleFn != nil {
+		return c.loadModuleFn(ctx, name)
+	}
 	_, err := c.run(ctx, "modprobe", name)
 	return err
 }

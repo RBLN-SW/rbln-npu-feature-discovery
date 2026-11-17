@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rbln-sw/rblnlib-go/internal/identity"
+
 	system "github.com/rbln-sw/rblnlib-go/pkg/system/v1"
 	"golang.org/x/sys/unix"
 )
@@ -41,7 +43,7 @@ func (c *Client) function(ctx context.Context, address string) (functionInfo, er
 			if err := ctx.Err(); err != nil {
 				return functionInfo{}, err
 			}
-			if class == "rebellions" && (entry.Name() == "rsd" || strings.HasPrefix(entry.Name(), "rblnfs")) {
+			if class == "rebellions" && !identity.NativeFunction(entry.Name()) {
 				continue
 			}
 			p := filepath.Join(root, entry.Name())
@@ -81,6 +83,12 @@ func (c *Client) function(ctx context.Context, address string) (functionInfo, er
 			node := entry.Name()
 			if class == "accel" {
 				name, e = readText(filepath.Join(p, "name"))
+				// KMD 3.4 exposes generic accel minors alongside the legacy
+				// class, without the RBLN name/attributes added by v4. Their
+				// presence alone is not evidence of the v4 device interface.
+				if errors.Is(e, system.ErrNotFound) {
+					continue
+				}
 				if e != nil {
 					return functionInfo{}, e
 				}
@@ -109,6 +117,37 @@ func (c *Client) function(ctx context.Context, address string) (functionInfo, er
 		if len(matches) == 1 {
 			return matches[0], nil
 		}
+	}
+	// PCI-only mounts expose the live identity independently of SMD caches.
+	pciPath, _ := c.devicePath(a)
+	entries, err := os.ReadDir(filepath.Join(pciPath, "rebellions"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return functionInfo{}, failure("PCI function identity", a, err)
+	}
+	var found *functionInfo
+	for _, entry := range entries {
+		if !identity.NativeFunction(entry.Name()) {
+			continue
+		}
+		p := filepath.Join(pciPath, "rebellions", entry.Name())
+		raw, err := readText(filepath.Join(p, "pci_addr"))
+		if errors.Is(err, system.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return functionInfo{}, err
+		}
+		if !strings.EqualFold(raw, a) || !safeName(entry.Name()) {
+			return functionInfo{}, system.FieldError(a, "native identity", entry.Name())
+		}
+		if found != nil {
+			return functionInfo{}, &system.Error{Kind: system.Conflict, Target: a, Message: "ambiguous native identity"}
+		}
+		f := functionInfo{name: entry.Name(), path: p, node: entry.Name()}
+		found = &f
+	}
+	if found != nil {
+		return *found, nil
 	}
 	return functionInfo{}, &system.Error{Kind: system.NotReady, Target: a, Message: "native function not present in sysfs"}
 }

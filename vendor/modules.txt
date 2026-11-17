@@ -5,6 +5,7 @@ github.com/inconshreveable/mousetrap
 ## explicit; go 1.25.4
 github.com/rbln-sw/rblnlib-go/internal/command
 github.com/rbln-sw/rblnlib-go/internal/hostlock
+github.com/rbln-sw/rblnlib-go/internal/identity
 github.com/rbln-sw/rblnlib-go/pkg/host/v1
 github.com/rbln-sw/rblnlib-go/pkg/system/v1
 # github.com/spf13/cobra v1.10.1

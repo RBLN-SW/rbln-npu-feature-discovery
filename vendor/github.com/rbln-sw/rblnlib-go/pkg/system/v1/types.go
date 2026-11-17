@@ -13,7 +13,7 @@ const VFIODriver = "vfio-pci"
 const VendorID uint16 = 0x1eff
 const NPUClass uint32 = 0x120000
 
-var pciAddressPattern = regexp.MustCompile(`^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-1][0-9a-fA-F]\.[0-7]$`)
+var pciAddressPattern = regexp.MustCompile(`^[0-9a-fA-F]{4,8}:[0-9a-fA-F]{2}:[0-1][0-9a-fA-F]\.[0-7]$`)
 
 // NormalizePCIAddress validates a full domain:bus:slot.function address.
 func NormalizePCIAddress(address string) (string, error) {
@@ -24,6 +24,20 @@ func NormalizePCIAddress(address string) (string, error) {
 }
 
 type State string
+
+// StateObservation distinguishes a numeric but unrecognized lifecycle value
+// from an unreadable attribute. RawCode is diagnostic, not allocation policy.
+type StateObservation struct {
+	State   State
+	RawCode *int64
+}
+
+func (s StateObservation) String() string {
+	if s.State == StateUnknown && s.RawCode != nil {
+		return fmt.Sprintf("UNKNOWN(%d)", *s.RawCode)
+	}
+	return strings.ToUpper(string(s.State))
+}
 
 const (
 	StateUnknown State = "unknown"
@@ -94,11 +108,15 @@ type Device struct {
 	Versions                     Versions
 	MemoryTotalBytes             *uint64
 	SRIOV                        *SRIOV
-	Topology                     Topology
-	Nodes                        []DeviceNode
-	Compute                      *bool   // nil when the backend cannot determine compute capability
-	Index                        *uint32 // backend ordinal, valid for the current observation only
-	Issues                       []Issue
+	// EnabledVFs is an optional backend observation, which may be cached.
+	// SRIOV, when present, additionally carries a validated local topology.
+	EnabledVFs  *uint32
+	Topology    Topology
+	Nodes       []DeviceNode
+	Compute     *bool   // nil when the backend cannot determine compute capability
+	Index       *uint32 // backend ordinal, valid for the current observation only
+	NativeIndex *uint32 // driver's PF ordinal, independent of Index and node numbers
+	Issues      []Issue
 }
 
 type Snapshot struct {
@@ -200,6 +218,10 @@ type BindingRequest struct {
 	// ExpectedDriver, when supplied, prevents a stale plan from replacing
 	// a different binding. The check is not an atomic kernel compare-and-swap.
 	ExpectedDriver *string
+	// AllowAutoprobeAfterUnbind clears the binding override without probing.
+	// Upgrade managers use this before loading a replacement driver. The
+	// default inhibits autoprobe until an explicit Bind/Reprobe operation.
+	AllowAutoprobeAfterUnbind bool
 }
 type Binder interface {
 	Bind(context.Context, BindingRequest) error

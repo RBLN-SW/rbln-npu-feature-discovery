@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rbln-sw/rblnlib-go/internal/identity"
+
 	system "github.com/rbln-sw/rblnlib-go/pkg/system/v1"
 )
 
@@ -29,14 +31,27 @@ type Options struct {
 	PCIIDsPath                                                   string // empty disables the optional pci.ids lookup
 	LockPath                                                     string // shared between all cooperating host control processes
 	CommandTimeout                                               time.Duration
+	// Kernel overrides are execution seams for fixture kernels or alternate
+	// host transports. Nil callbacks keep the native implementation.
+	Kernel *KernelOps
+}
+
+type KernelOps struct {
+	WriteAttribute func(context.Context, string, string) error
+	LoadModule     func(context.Context, string) error
+	UnloadModule   func(string) error
+	Unmount        func(string) error
+	Mounts         func(context.Context, string) ([]Mount, error)
 }
 
 type Client struct {
-	opts     Options
-	products *PCIIDs
-	write    func(context.Context, string, string) error
-	unmount  func(string) error
-	unload   func(string) error
+	opts         Options
+	products     *PCIIDs
+	write        func(context.Context, string, string) error
+	unmount      func(string) error
+	unload       func(string) error
+	loadModuleFn func(context.Context, string) error
+	mountsFn     func(context.Context, string) ([]Mount, error)
 }
 
 func New(opts Options) (*Client, error) {
@@ -54,6 +69,9 @@ func New(opts Options) (*Client, error) {
 	}
 	if opts.LockPath == "" {
 		opts.LockPath = "/run/lock/rbln-host-control.lock"
+		if opts.HostRoot != "" {
+			opts.LockPath = filepath.Join(opts.HostRoot, "run/lock/rbln-host-control.lock")
+		}
 	}
 	if opts.CommandTimeout == 0 {
 		opts.CommandTimeout = 10 * time.Second
@@ -67,6 +85,19 @@ func New(opts Options) (*Client, error) {
 		}
 	}
 	c := &Client{opts: opts, write: writeAttribute, unmount: unmount, unload: unloadModule}
+	if k := opts.Kernel; k != nil {
+		if k.WriteAttribute != nil {
+			c.write = k.WriteAttribute
+		}
+		if k.UnloadModule != nil {
+			c.unload = k.UnloadModule
+		}
+		if k.Unmount != nil {
+			c.unmount = k.Unmount
+		}
+		c.loadModuleFn = k.LoadModule
+		c.mountsFn = k.Mounts
+	}
 	if opts.PCIIDsPath != "" {
 		var err error
 		c.products, err = LoadPCIIDs(opts.PCIIDsPath)
@@ -200,6 +231,9 @@ func (c *Client) ListDevices(ctx context.Context) (system.Snapshot, error) {
 		if err := ctx.Err(); err != nil {
 			return s, err
 		}
+		if _, err := system.NormalizePCIAddress(entry.Name()); err != nil {
+			continue
+		}
 		d, err := c.GetDevice(ctx, entry.Name())
 		if errors.Is(err, system.ErrUnsupported) {
 			continue
@@ -244,6 +278,7 @@ func (c *Client) GetDevice(ctx context.Context, address string) (system.Device, 
 	sriov, err := c.ReadSRIOV(ctx, address)
 	if err == nil {
 		d.SRIOV = &sriov
+		d.EnabledVFs = system.Pointer(sriov.EnabledVFs)
 		d.FunctionKind = sriov.Kind
 		d.ParentPCIAddress = sriov.ParentPCIAddress
 	}
@@ -255,6 +290,11 @@ func (c *Client) GetDevice(ctx context.Context, address string) (system.Device, 
 		issue("function", e)
 		if e == nil {
 			d.Name = entry.name
+			if d.FunctionKind == system.PhysicalFunction {
+				if index, ok := identity.NativePFOrdinal(d.Name); ok {
+					d.NativeIndex = &index
+				}
+			}
 			for _, f := range []struct {
 				attr, field string
 				dst         *string
