@@ -4,11 +4,6 @@ RUN apk add --no-cache build-base git
 
 WORKDIR /src
 
-COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    go mod download
-
 COPY . .
 
 ENV CGO_ENABLED=0
@@ -20,19 +15,22 @@ ARG TARGETOS TARGETARCH
 ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -buildvcs=false \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -mod=vendor -buildvcs=false \
     -ldflags "-X github.com/rebellions-sw/rbln-npu-feature-discovery/internal/cmd.version=${VERSION}" \
     -o /usr/local/bin/rbln-npu-feature-discovery ./cmd/rbln-npu-feature-discovery
 
-FROM redhat/ubi9-minimal:9.8
-ARG VERSION
+FROM redhat/ubi9-micro:9.9 AS runtime-base
+# Only the trust bundle and service account files cross into the target image.
+FROM --platform=$BUILDPLATFORM redhat/ubi9:9.9 AS runtime-config
+COPY --from=runtime-base /etc/passwd /etc/group /etc/shadow /etc/gshadow /runtime/etc/
+RUN groupadd --prefix /runtime -r -g 999 rbln && \
+    useradd --prefix /runtime -r -u 999 -g 999 -M -d /home/rbln -s /sbin/nologin -c "RBLN NPU Feature Discovery" rbln && \
+    install -d -o 999 -g 999 /runtime/home/rbln && \
+    install -D -m 0644 /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /runtime/etc/pki/tls/certs/ca-bundle.crt
 
-RUN microdnf install -y shadow-utils && \
-    groupadd -r rbln && \
-    useradd -r -g rbln -d /home/rbln -s /sbin/nologin -c "RBLN NPU Feature Discovery" rbln && \
-    mkdir -p /home/rbln && \
-    chown rbln:rbln /home/rbln && \
-    microdnf clean all
+FROM runtime-base
+COPY --from=runtime-config /runtime/ /
+ARG VERSION
 
 COPY LICENSE /licenses/LICENSE.txt
 

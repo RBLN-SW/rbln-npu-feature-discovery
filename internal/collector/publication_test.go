@@ -64,6 +64,7 @@ func (f *hardwareFixture) remove(t *testing.T, path string) {
 func (f *hardwareFixture) device(t *testing.T, addr, id string) {
 	t.Helper()
 	f.write(t, "sys/bus/pci/devices/"+addr+"/vendor", "0x1eff\n")
+	f.write(t, "sys/bus/pci/devices/"+addr+"/class", "0x120000")
 	f.write(t, "sys/bus/pci/devices/"+addr+"/device", "0x"+id+"\n")
 }
 
@@ -152,6 +153,17 @@ func TestCollectOnceCountsVFsInsteadOfPF(t *testing.T) {
 	f.write(t, "sys/bus/pci/devices/0000:01:00.0/sriov_numvfs", "2\n")
 	f.device(t, "0000:01:00.1", "2131")
 	f.device(t, "0000:01:00.2", "2131")
+	pf := filepath.Join(f.root, "sys/bus/pci/devices/0000:01:00.0")
+	for i, vf := range []string{"0000:01:00.1", "0000:01:00.2"} {
+		vfPath := filepath.Join(f.root, "sys/bus/pci/devices", vf)
+		if err := os.Symlink(pf, filepath.Join(vfPath, "physfn")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(vfPath, filepath.Join(pf, fmt.Sprintf("virtfn%d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	if err := f.c.CollectOnce(); err != nil {
 		t.Fatal(err)
 	}

@@ -2,6 +2,7 @@ package sysfs
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,6 +16,11 @@ func writeAttribute(t *testing.T, root, path, value string) {
 	path = filepath.Join(root, path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
+	}
+	if filepath.Base(path) == "vendor" {
+		if err := os.WriteFile(filepath.Join(filepath.Dir(path), "class"), []byte("0x120000"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
 		t.Fatal(err)
@@ -76,12 +82,12 @@ func TestDiscoverDevices(t *testing.T) {
 				"0000:01:00.0/vendor": "0x1eff", "0000:01:00.0/device": "0x2130",
 				"0000:02:00.0/device": "0x2131",
 			},
-			wantErr: "read vendor",
+			wantErr: "/vendor",
 		},
 		{
 			name:    "missing RBLN device attribute",
 			files:   map[string]string{"0000:01:00.0/vendor": "0x1eff"},
-			wantErr: "read device id",
+			wantErr: "/device",
 		},
 	}
 	for _, tc := range tests {
@@ -92,6 +98,18 @@ func TestDiscoverDevices(t *testing.T) {
 			}
 			for path, value := range tc.files {
 				writeAttribute(t, root, pci+path, value)
+			}
+			if tc.name == "exclude PF while counting its two VFs" {
+				pf := filepath.Join(root, pci, "0000:01:00.0")
+				for i, vf := range []string{"0000:01:00.1", "0000:01:00.2"} {
+					vfPath := filepath.Join(root, pci, vf)
+					if err := os.Symlink(pf, filepath.Join(vfPath, "physfn")); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(vfPath, filepath.Join(pf, fmt.Sprintf("virtfn%d", i))); err != nil {
+						t.Fatal(err)
+					}
+				}
 			}
 			devices, skipped, err := NewReader(root).DiscoverDevices()
 			if tc.wantErr != "" {
