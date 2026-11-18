@@ -11,7 +11,5 @@ require golang.org/x/sys v0.47.0 // indirect
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/rbln-sw/rblnlib-go v0.3.0
+	github.com/rbln-sw/rblnlib-go v0.4.0
 )
-
-replace github.com/rbln-sw/rblnlib-go => ../rblnlib-go
