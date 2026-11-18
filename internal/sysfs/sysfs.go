@@ -4,17 +4,20 @@ package sysfs
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+
 	host "github.com/rbln-sw/rblnlib-go/pkg/host/v1"
 	system "github.com/rbln-sw/rblnlib-go/pkg/system/v1"
-	"path/filepath"
 )
 
-type Device struct{ DeviceID string }
-type Reader struct {
-	root     string
-	devices  []system.Device
-	observed bool
-}
+type (
+	Device struct{ DeviceID string }
+	Reader struct {
+		root     string
+		devices  []system.Device
+		observed bool
+	}
+)
 
 func NewReader(root string) *Reader { return &Reader{root: root} }
 func (r *Reader) observe() error {
@@ -60,6 +63,7 @@ func (r *Reader) DiscoverDevices() ([]Device, []string, error) {
 	}
 	return devices, skipped, nil
 }
+
 func (r *Reader) metadataClient() (*host.Client, error) {
 	root, err := filepath.Abs(r.root)
 	if err != nil {
@@ -67,6 +71,7 @@ func (r *Reader) metadataClient() (*host.Client, error) {
 	}
 	return host.New(host.Options{SysRoot: filepath.Join(root, "sys")})
 }
+
 func (r *Reader) ReadCardName() (string, bool, error) {
 	c, err := r.metadataClient()
 	if err != nil {
@@ -75,6 +80,7 @@ func (r *Reader) ReadCardName() (string, bool, error) {
 	value, err := c.ReadCardName(context.Background())
 	return value, value != "", err
 }
+
 func (r *Reader) ReadDriverVersion() (string, bool, error) {
 	c, err := r.metadataClient()
 	if err != nil {
