@@ -1,4 +1,4 @@
-ARG GOLANG_VERSION=1.26.10
+ARG GOLANG_VERSION=1.26.11
 FROM --platform=$BUILDPLATFORM golang:${GOLANG_VERSION}-alpine AS builder
 RUN apk add --no-cache build-base git
 
